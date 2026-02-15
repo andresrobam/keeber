@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import yaml from 'js-yaml'
 import './App.css'
 import { KEY_GROUPS } from './keyRegistry'
@@ -77,11 +77,24 @@ const LAYER_MODES = [
   { id: 'once', label: 'Once', description: 'Next key only' }
 ]
 
+const UNICODE_MAX = 0x10ffff
+const UNICODE_OS_OPTIONS = [
+  { id: 'macos', label: 'macOS', zmk: 'UC_MODE_MACOS', qmk: 'UNICODE_MODE_MACOS' },
+  { id: 'linux', label: 'Linux', zmk: 'UC_MODE_LINUX', qmk: 'UNICODE_MODE_LINUX' },
+  { id: 'wincompose', label: 'Windows (WinCompose)', zmk: 'UC_MODE_WIN_COMPOSE', qmk: 'UNICODE_MODE_WINCOMPOSE' },
+  { id: 'winnumpad', label: 'Windows (HexNumpad)', zmk: 'UC_MODE_WIN_ALT', qmk: 'UNICODE_MODE_WINDOWS' }
+]
+const DEFAULT_UNICODE_OS = 'linux'
+
 const LAYER_MODE_BINDINGS = {
   hold: { zmk: '&mo', qmk: 'MO' },
   toggle: { zmk: '&tog', qmk: 'TG' },
   once: { zmk: '&sl', qmk: 'OSL' }
 }
+
+const getUnicodeOsOption = (value) =>
+  UNICODE_OS_OPTIONS.find((option) => option.id === value) ||
+  UNICODE_OS_OPTIONS.find((option) => option.id === DEFAULT_UNICODE_OS)
 
 const parseBindingToken = (binding) => {
   if (!binding) return ''
@@ -108,6 +121,35 @@ const parseBindingToken = (binding) => {
 
   return trimmed
 }
+
+const parseUnicodeHexFromBinding = (binding) => {
+  if (!binding) return ''
+  const trimmed = binding.trim()
+  const zmkMatch = /^&uc\s+(?:0x)?([0-9a-fA-F]+)\b/.exec(trimmed)
+  if (zmkMatch) return zmkMatch[1].toUpperCase()
+  const qmkMatch = /^UC\(\s*0x([0-9a-fA-F]+)\s*\)$/.exec(trimmed)
+  if (qmkMatch) return qmkMatch[1].toUpperCase()
+  return ''
+}
+
+const normalizeUnicodeHexInput = (value) => {
+  const trimmed = value.trim().toUpperCase()
+  const stripped = trimmed.replace(/^U\+/, '').replace(/^0X/, '')
+  if (!stripped) return { hex: '', error: '' }
+  if (!/^[0-9A-F]+$/.test(stripped)) {
+    return { hex: stripped, error: 'Use hex digits 0-9 and A-F.' }
+  }
+  const codepoint = Number.parseInt(stripped, 16)
+  if (!Number.isFinite(codepoint) || codepoint < 0 || codepoint > UNICODE_MAX) {
+    return { hex: stripped, error: 'Code points must be between U+0 and U+10FFFF.' }
+  }
+  return { hex: stripped, error: '' }
+}
+
+const buildUnicodeBindings = (hex) => ({
+  zmk: `&uc 0x${hex} 0`,
+  qmk: `UC(0x${hex})`
+})
 
 const normalizeMagicLetters = (letters) => {
   if (!Array.isArray(letters)) return DEFAULT_MAGIC_HOLD_LETTERS
@@ -143,6 +185,8 @@ const findCanonicalLabel = (binding, labelLookup) => {
 }
 
 const resolveKeyLabel = (zmk, qmk, layers, labelLookup) => {
+  const unicodeHex = parseUnicodeHexFromBinding(zmk) || parseUnicodeHexFromBinding(qmk)
+  if (unicodeHex) return `U+${unicodeHex}`
   const canonical =
     findCanonicalLabel(zmk, labelLookup) ||
     findCanonicalLabel(qmk, labelLookup)
@@ -655,6 +699,13 @@ const hasMagicBinding = (layers) =>
     )
   )
 
+const hasUnicodeBinding = (layers, target) =>
+  layers.some((layer) =>
+    Object.values(layer.bindings).some((binding) =>
+      parseUnicodeHexFromBinding(binding?.[target])
+    )
+  )
+
 const getAlphaToken = (binding) => {
   const token = parseBindingToken(binding)
   if (!token) return ''
@@ -681,8 +732,10 @@ const buildMagicLayerBindings = (keys, baseLayer, target, magicHoldLetters) =>
     return target === 'zmk' ? '&trans' : 'KC_TRNS'
   })
 
-const formatZmkKeymap = (keys, layers, magicHoldLetters, defaultLayer) => {
+const formatZmkKeymap = (keys, layers, magicHoldLetters, defaultLayer, unicodeOs) => {
   const useMagic = hasMagicBinding(layers)
+  const useUnicode = hasUnicodeBinding(layers, 'zmk')
+  const unicodeConfig = getUnicodeOsOption(unicodeOs)
   const magicLayerIndex = layers.length
   const layerBlocks = layers.map((layer, index) => {
     const bindings = keys
@@ -706,7 +759,10 @@ const formatZmkKeymap = (keys, layers, magicHoldLetters, defaultLayer) => {
     )
   }
   const safeDefault = clampLayerIndex(defaultLayer, layers)
-  return `/ {\n  keymap {\n    compatible = "zmk,keymap";\n    default_layer = <${safeDefault}>;\n    layers {\n${layerBlocks.join('\n')}\n    };\n  };\n};\n`
+  const unicodeHeader = useUnicode
+    ? `#include <behaviors/unicode.dtsi>\n\n&uc {\n  default-mode = <${unicodeConfig.zmk}>;\n};\n\n`
+    : ''
+  return `${unicodeHeader}/ {\n  keymap {\n    compatible = "zmk,keymap";\n    default_layer = <${safeDefault}>;\n    layers {\n${layerBlocks.join('\n')}\n    };\n  };\n};\n`
 }
 
 const pinToGpio = (pin) => {
@@ -753,8 +809,10 @@ const formatQmkInfo = (keys, matrix) => {
   )
 }
 
-const formatQmkKeymap = (keys, layers, magicHoldLetters, defaultLayer) => {
+const formatQmkKeymap = (keys, layers, magicHoldLetters, defaultLayer, unicodeOs) => {
   const useMagic = hasMagicBinding(layers)
+  const useUnicode = hasUnicodeBinding(layers, 'qmk')
+  const unicodeConfig = getUnicodeOsOption(unicodeOs)
   const magicLayerIndex = layers.length
   const safeDefault = clampLayerIndex(defaultLayer, layers)
   const layerBlocks = layers
@@ -780,7 +838,10 @@ const formatQmkKeymap = (keys, layers, magicHoldLetters, defaultLayer) => {
     )
     .join(',\n')
 
-  return `#include QMK_KEYBOARD_H\n\nconst uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {\n${layerBlocks}\n};\n\nvoid keyboard_post_init_user(void) {\n  default_layer_set(1UL << ${safeDefault});\n}\n`
+  const unicodeInit = useUnicode
+    ? `  set_unicode_input_mode(${unicodeConfig.qmk});\n`
+    : ''
+  return `#include QMK_KEYBOARD_H\n\nconst uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {\n${layerBlocks}\n};\n\nvoid keyboard_post_init_user(void) {\n${unicodeInit}  default_layer_set(1UL << ${safeDefault});\n}\n`
 }
 
 const DEFAULT_SAVE_NAME = 'keyboard-config.kb.json'
@@ -828,6 +889,8 @@ function App() {
   const [activeLayer, setActiveLayer] = useState(0)
   const [defaultLayerZmk, setDefaultLayerZmk] = useState(0)
   const [defaultLayerQmk, setDefaultLayerQmk] = useState(0)
+  const [unicodeOsZmk, setUnicodeOsZmk] = useState(DEFAULT_UNICODE_OS)
+  const [unicodeOsQmk, setUnicodeOsQmk] = useState(DEFAULT_UNICODE_OS)
   const [selectedKeyId, setSelectedKeyId] = useState(null)
   const [showGhosts, setShowGhosts] = useState(false)
   const [lastLoaded, setLastLoaded] = useState('')
@@ -840,6 +903,9 @@ function App() {
   const [captureIndex, setCaptureIndex] = useState(0)
   const [captureRowDirection, setCaptureRowDirection] = useState('asc')
   const [captureColDirection, setCaptureColDirection] = useState('asc')
+  const [unicodeHexInput, setUnicodeHexInput] = useState('')
+  const [unicodeHexError, setUnicodeHexError] = useState('')
+  const activeLayerInputRef = useRef(null)
 
   const magicHoldSet = useMemo(() => new Set(magicHoldLetters), [magicHoldLetters])
 
@@ -915,6 +981,10 @@ function App() {
 
   const layer = layers[activeLayer]
   const binding = selectedKey ? layer?.bindings[selectedKey.id] : null
+  const selectedUnicodeHex = useMemo(
+    () => parseUnicodeHexFromBinding(binding?.zmk) || parseUnicodeHexFromBinding(binding?.qmk),
+    [binding]
+  )
   const registryItems = useMemo(() => flattenKeyGroups(KEY_GROUPS), [])
   const labelLookup = useMemo(() => buildLabelLookup(registryItems), [registryItems])
   const bindingLookup = useMemo(() => buildBindingLookup(registryItems), [registryItems])
@@ -968,6 +1038,33 @@ function App() {
     setCaptureIndex(nextIndex)
   }, [captureIndexById, selectedKeyId])
 
+  useEffect(() => {
+    setUnicodeHexInput(selectedUnicodeHex || '')
+    setUnicodeHexError('')
+  }, [selectedUnicodeHex, selectedKeyId, activeLayer])
+
+  useLayoutEffect(() => {
+    const input = activeLayerInputRef.current
+    if (!input) return undefined
+    const measure = () => {
+      input.style.width = '0px'
+      const nextWidth = Math.max(input.scrollWidth + 2, 24)
+      input.style.width = `${nextWidth}px`
+    }
+    measure()
+    const rafId = window.requestAnimationFrame(measure)
+    let cancelled = false
+    if (document?.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        if (!cancelled) measure()
+      })
+    }
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(rafId)
+    }
+  }, [layer?.name, activeLayer, parsed.keys.length])
+
   const updateBinding = (field, value) => {
     if (!selectedKey) return
     setLayers((prev) =>
@@ -1004,6 +1101,22 @@ function App() {
         }
       })
     )
+  }
+
+  const applyUnicodeBinding = () => {
+    if (!selectedKey) return
+    const normalized = normalizeUnicodeHexInput(unicodeHexInput)
+    if (!normalized.hex || normalized.error) {
+      setUnicodeHexError(normalized.error || 'Enter a Unicode code point.')
+      return
+    }
+    setUnicodeHexError('')
+    updateKeyBinding(selectedKey.id, buildUnicodeBindings(normalized.hex))
+  }
+
+  const clearUnicodeBinding = () => {
+    if (!selectedKey) return
+    updateKeyBinding(selectedKey.id, { zmk: '&none', qmk: 'KC_NO' })
   }
 
   const toggleMagicLetter = (letter) => {
@@ -1158,6 +1271,12 @@ function App() {
         zmk: defaultLayerZmk,
         qmk: defaultLayerQmk
       },
+      unicode: {
+        os: {
+          zmk: unicodeOsZmk,
+          qmk: unicodeOsQmk
+        }
+      },
       magic: {
         holdLetters: magicHoldLetters
       }
@@ -1190,6 +1309,8 @@ function App() {
         setDefaultLayerZmk(clampLayerIndex(data.defaultLayers?.zmk ?? 0, data.layers))
         setDefaultLayerQmk(clampLayerIndex(data.defaultLayers?.qmk ?? 0, data.layers))
       }
+      setUnicodeOsZmk(getUnicodeOsOption(data.unicode?.os?.zmk)?.id || DEFAULT_UNICODE_OS)
+      setUnicodeOsQmk(getUnicodeOsOption(data.unicode?.os?.qmk)?.id || DEFAULT_UNICODE_OS)
       if (typeof data.activeLayer === 'number') {
         setActiveLayer(data.activeLayer)
       }
@@ -1227,12 +1348,12 @@ function App() {
   }, [bindingLookup, captureIndex, captureMode, captureKeys, activeLayer])
 
   const zmkKeymap = parsed.matrix
-    ? formatZmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerZmk)
+    ? formatZmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerZmk, unicodeOsZmk)
     : ''
   const zmkOverlay = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
   const qmkInfo = parsed.matrix ? formatQmkInfo(visibleKeys, parsed.matrix) : ''
   const qmkKeymap = parsed.matrix
-    ? formatQmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerQmk)
+    ? formatQmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerQmk, unicodeOsQmk)
     : ''
 
   return (
@@ -1397,12 +1518,20 @@ function App() {
             </div>
             <div className="layer-tabs">
               {layers.map((layerItem, index) => (
-                <button
+                <div
                   key={layerItem.id}
                   className={`layer-tab ${index === activeLayer ? 'active' : ''} ${
                     dragLayerIndex === index ? 'dragging' : ''
                   } ${dragOverLayerIndex === index ? 'drag-over' : ''}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setActiveLayer(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      setActiveLayer(index)
+                    }
+                  }}
                   draggable={index !== 0}
                   onDragStart={handleLayerDragStart(index)}
                   onDragOver={handleLayerDragOver(index)}
@@ -1410,16 +1539,23 @@ function App() {
                   onDrop={handleLayerDrop(index)}
                   onDragEnd={handleLayerDragEnd}
                 >
-                  {layerItem.name}
-                </button>
+                  {index === activeLayer ? (
+                    <input
+                      className="layer-tab-input"
+                      ref={activeLayerInputRef}
+                      size={Math.max(layerItem.name.length, 2)}
+                      value={layerItem.name}
+                      onChange={(event) => renameLayer(event.target.value)}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                      placeholder="Layer name"
+                    />
+                  ) : (
+                    <span>{layerItem.name}</span>
+                  )}
+                </div>
               ))}
             </div>
-            <input
-              className="layer-name"
-              value={layer?.name || ''}
-              onChange={(event) => renameLayer(event.target.value)}
-              placeholder="Layer name"
-            />
           </div>
 
           <div className="key-editor">
@@ -1481,6 +1617,41 @@ function App() {
                       ))}
                     </div>
                   ))}
+                </div>
+                <div className="unicode-settings">
+                  <div>
+                    <h4>Unicode key</h4>
+                    <p>Send a Unicode code point from this key.</p>
+                  </div>
+                  <div className="unicode-row">
+                    <div className="field unicode-input">
+                      <label>Code point</label>
+                      <div className="unicode-input-wrap">
+                        <span className="unicode-prefix">U+</span>
+                        <input
+                          value={unicodeHexInput}
+                          onChange={(event) => {
+                            const nextValue = event.target.value
+                            setUnicodeHexInput(nextValue)
+                            const normalized = normalizeUnicodeHexInput(nextValue)
+                            setUnicodeHexError(normalized.error)
+                          }}
+                          placeholder="1F600"
+                        />
+                      </div>
+                    </div>
+                    <div className="unicode-actions">
+                      <button type="button" className="primary" onClick={applyUnicodeBinding}>
+                        Apply Unicode
+                      </button>
+                      <button type="button" className="ghost" onClick={clearUnicodeBinding}>
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  {unicodeHexError ? (
+                    <p className="unicode-error">{unicodeHexError}</p>
+                  ) : null}
                 </div>
               </>
               ) : (
@@ -1562,6 +1733,16 @@ function App() {
                 ))}
               </select>
             </div>
+            <div className="field export-field">
+              <label>Unicode OS (ZMK)</label>
+              <select value={unicodeOsZmk} onChange={(event) => setUnicodeOsZmk(event.target.value)}>
+                {UNICODE_OS_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="export-actions">
               <button
                 className="primary"
@@ -1613,6 +1794,16 @@ function App() {
                 {layers.map((layerItem, index) => (
                   <option key={layerItem.id} value={index}>
                     {layerItem.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field export-field">
+              <label>Unicode OS (QMK)</label>
+              <select value={unicodeOsQmk} onChange={(event) => setUnicodeOsQmk(event.target.value)}>
+                {UNICODE_OS_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
                   </option>
                 ))}
               </select>

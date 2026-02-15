@@ -269,15 +269,23 @@ body {
   gap: 6px;
 }
 
-.layer-tabs button {
+.layer-tab {
   border: 1px solid transparent;
   background: rgba(90, 167, 162, 0.18);
   color: var(--ink);
   padding: 6px 12px;
   border-radius: 999px;
   cursor: pointer;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, opacity 0.2s ease;
 }
+
+.layer-tab span {
+  white-space: nowrap;
+}
+
 
 .layer-tabs .layer-tab.dragging {
   opacity: 0.6;
@@ -290,12 +298,12 @@ body {
   transform: translateY(-2px);
 }
 
-.layer-tabs button.active {
+.layer-tab.active {
   background: var(--sea);
   color: white;
 }
 
-.inspector input {
+.inspector input:not(.layer-tab-input) {
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
@@ -305,9 +313,19 @@ body {
   font-family: inherit;
 }
 
-.layer-name {
+.layer-tab .layer-tab-input {
+  width: auto;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
   caret-color: auto;
 }
+
 
 .key-editor {
   margin-top: 16px;
@@ -388,6 +406,98 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.unicode-settings {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(90, 167, 162, 0.08);
+  border: 1px solid rgba(15, 30, 31, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.unicode-settings h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.unicode-settings p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.unicode-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.unicode-row .field {
+  margin-bottom: 0;
+}
+
+.unicode-input {
+  flex: 1 1 200px;
+}
+
+.unicode-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  padding: 0 10px;
+}
+
+.unicode-prefix {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.unicode-settings .unicode-input-wrap input {
+  border: none;
+  padding: 10px 0;
+  width: 100%;
+  background: transparent;
+  box-shadow: none;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink);
+  caret-color: auto;
+}
+
+.unicode-input-wrap input:focus {
+  outline: none;
+}
+
+.unicode-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.unicode-actions button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.unicode-error {
+  margin: 0;
+  font-size: 12px;
+  color: #b21b1b;
+}
+
+.unicode-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
 }
 
 .binding-row .field {
