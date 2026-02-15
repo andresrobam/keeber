@@ -51,7 +51,8 @@ export const KEY_GROUPS = [
           { label: 'L Alt', zmk: '&kp LALT', qmk: 'KC_LALT' },
           { label: 'R Alt', zmk: '&kp RALT', qmk: 'KC_RALT' },
           { label: 'L Gui', zmk: '&kp LGUI', qmk: 'KC_LGUI' },
-          { label: 'R Gui', zmk: '&kp RGUI', qmk: 'KC_RGUI' }
+          { label: 'R Gui', zmk: '&kp RGUI', qmk: 'KC_RGUI' },
+          { label: 'Magic', zmk: '&magic', qmk: 'MAGIC' }
         ]
       },
       {

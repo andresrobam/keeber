@@ -61,28 +61,62 @@ const MIN_KEY_FONT = 4.5
 
 const normalizeToken = (token) => token.toUpperCase().replace(/_/g, '')
 
+const MAGIC_BINDING = {
+  zmk: '&magic',
+  qmk: 'MAGIC'
+}
+const MAGIC_LAYER_NAME = 'Magic'
+const DEFAULT_MAGIC_HOLD_LETTERS = ['A', 'X', 'C', 'V', 'B', 'P']
+const MAGIC_LETTER_OPTIONS = Array.from({ length: 26 }, (_, index) =>
+  String.fromCharCode(65 + index)
+)
+
+const LAYER_MODES = [
+  { id: 'hold', label: 'Hold', description: 'Active while held' },
+  { id: 'toggle', label: 'Toggle', description: 'Press to toggle' },
+  { id: 'once', label: 'Once', description: 'Next key only' }
+]
+
+const LAYER_MODE_BINDINGS = {
+  hold: { zmk: '&mo', qmk: 'MO' },
+  toggle: { zmk: '&tog', qmk: 'TG' },
+  once: { zmk: '&sl', qmk: 'OSL' }
+}
+
 const parseBindingToken = (binding) => {
   if (!binding) return ''
   const trimmed = binding.trim()
   if (!trimmed || trimmed === '&none' || trimmed === 'KC_NO') return ''
+
+  if (trimmed === MAGIC_BINDING.zmk) {
+    return MAGIC_BINDING.qmk
+  }
 
   if (trimmed.startsWith('&kp')) {
     const parts = trimmed.split(/\s+/)
     return parts[1] || ''
   }
 
-  if (trimmed.startsWith('&mo')) {
-    const parts = trimmed.split(/\s+/)
-    return parts[1] ? `L${parts[1]}` : ''
-  }
+  const zmkLayerMatch = /^&(mo|tog|sl)\s+(\d+)$/.exec(trimmed)
+  if (zmkLayerMatch) return `L${zmkLayerMatch[2]}`
 
-  const moMatch = /MO\((\d+)\)/.exec(trimmed)
-  if (moMatch) return `L${moMatch[1]}`
+  const qmkLayerMatch = /^(MO|TG|OSL)\((\d+)\)$/.exec(trimmed)
+  if (qmkLayerMatch) return `L${qmkLayerMatch[2]}`
 
   const kcMatch = /KC_([A-Z0-9_]+)/.exec(trimmed)
   if (kcMatch) return kcMatch[1]
 
   return trimmed
+}
+
+const normalizeMagicLetters = (letters) => {
+  if (!Array.isArray(letters)) return DEFAULT_MAGIC_HOLD_LETTERS
+  const cleaned = letters
+    .filter((letter) => typeof letter === 'string')
+    .map((letter) => letter.trim().toUpperCase())
+    .filter((letter) => /^[A-Z]$/.test(letter))
+  const unique = new Set(cleaned)
+  return MAGIC_LETTER_OPTIONS.filter((letter) => unique.has(letter))
 }
 
 const formatKeyLabel = (binding) => {
@@ -412,35 +446,50 @@ const ensureLayers = (layers, keys) => {
   }))
 }
 
-const buildLayerPalette = (layers) =>
+const buildLayerPalette = (layers, mode) =>
   layers.slice(1).map((layer, index) => {
     const layerIndex = index + 1
+    const bindingMode = LAYER_MODE_BINDINGS[mode] || LAYER_MODE_BINDINGS.hold
     return {
       label: layer.name,
-      zmk: `&mo ${layerIndex}`,
-      qmk: `MO(${layerIndex})`
+      zmk: `${bindingMode.zmk} ${layerIndex}`,
+      qmk: `${bindingMode.qmk}(${layerIndex})`
     }
   })
 
 const getLayerIndexFromBinding = (value) => {
   if (!value) return null
   const trimmed = value.trim()
-  const zmkMatch = /^&mo\s+(\d+)$/.exec(trimmed)
-  if (zmkMatch) return { index: Number(zmkMatch[1]), type: 'zmk' }
-  const qmkMatch = /^MO\((\d+)\)$/.exec(trimmed)
-  if (qmkMatch) return { index: Number(qmkMatch[1]), type: 'qmk' }
+  const zmkMatch = /^&(mo|tog|sl)\s+(\d+)$/.exec(trimmed)
+  if (zmkMatch) {
+    const mode = zmkMatch[1] === 'mo' ? 'hold' : zmkMatch[1] === 'tog' ? 'toggle' : 'once'
+    return { index: Number(zmkMatch[2]), type: 'zmk', mode }
+  }
+  const qmkMatch = /^(MO|TG|OSL)\((\d+)\)$/.exec(trimmed)
+  if (qmkMatch) {
+    const mode = qmkMatch[1] === 'MO' ? 'hold' : qmkMatch[1] === 'TG' ? 'toggle' : 'once'
+    return { index: Number(qmkMatch[2]), type: 'qmk', mode }
+  }
   return null
+}
+
+const formatLayerBinding = (index, type, mode) => {
+  const bindingMode = LAYER_MODE_BINDINGS[mode] || LAYER_MODE_BINDINGS.hold
+  if (type === 'zmk') {
+    return `${bindingMode.zmk} ${index}`
+  }
+  return `${bindingMode.qmk}(${index})`
 }
 
 const updateLayerBinding = (value, removedIndex) => {
   if (!value) return value
   const parsed = getLayerIndexFromBinding(value)
   if (!parsed) return value
-  const { index, type } = parsed
+  const { index, type, mode } = parsed
   if (index === removedIndex) return ''
   if (index > removedIndex) {
     const nextIndex = index - 1
-    return type === 'zmk' ? `&mo ${nextIndex}` : `MO(${nextIndex})`
+    return formatLayerBinding(nextIndex, type, mode)
   }
   return value
 }
@@ -463,10 +512,10 @@ const remapLayerBinding = (value, indexMap) => {
   if (!value) return value
   const parsed = getLayerIndexFromBinding(value)
   if (!parsed) return value
-  const { index, type } = parsed
+  const { index, type, mode } = parsed
   if (indexMap[index] === undefined) return value
   const nextIndex = indexMap[index]
-  return type === 'zmk' ? `&mo ${nextIndex}` : `MO(${nextIndex})`
+  return formatLayerBinding(nextIndex, type, mode)
 }
 
 const remapLayerBindings = (layers, indexMap) =>
@@ -498,11 +547,69 @@ const reorderLayers = (layers, fromIndex, toIndex) => {
   return { nextLayers, indexMap }
 }
 
-const formatZmkKeymap = (keys, layers) => {
+const isMagicBinding = (binding) => {
+  if (!binding) return false
+  const trimmed = binding.trim()
+  return trimmed === MAGIC_BINDING.zmk || trimmed === MAGIC_BINDING.qmk
+}
+
+const hasMagicBinding = (layers) =>
+  layers.some((layer) =>
+    Object.values(layer.bindings).some(
+      (binding) => isMagicBinding(binding?.zmk) || isMagicBinding(binding?.qmk)
+    )
+  )
+
+const getAlphaToken = (binding) => {
+  const token = parseBindingToken(binding)
+  if (!token) return ''
+  const upper = token.toUpperCase()
+  if (upper.length === 1 && upper >= 'A' && upper <= 'Z') return upper
+  return ''
+}
+
+const resolveMagicBinding = (binding, magicLayerIndex, target) => {
+  if (!isMagicBinding(binding)) return binding
+  return target === 'zmk'
+    ? `&lt ${magicLayerIndex} LGUI`
+    : `LT(${magicLayerIndex}, KC_LGUI)`
+}
+
+const buildMagicLayerBindings = (keys, baseLayer, target, magicHoldLetters) =>
+  keys.map((key) => {
+    const binding = baseLayer?.bindings[key.id]
+    const baseValue = binding?.zmk || binding?.qmk || ''
+    const alpha = getAlphaToken(baseValue)
+    if (magicHoldLetters.has(alpha)) {
+      return target === 'zmk' ? `&kp LC(${alpha})` : `LCTL(KC_${alpha})`
+    }
+    return target === 'zmk' ? '&trans' : 'KC_TRNS'
+  })
+
+const formatZmkKeymap = (keys, layers, magicHoldLetters) => {
+  const useMagic = hasMagicBinding(layers)
+  const magicLayerIndex = layers.length
   const layerBlocks = layers.map((layer, index) => {
-    const bindings = keys.map((key) => layer.bindings[key.id]?.zmk || '&none').join(' ')
+    const bindings = keys
+      .map((key) => {
+        const value = layer.bindings[key.id]?.zmk || '&none'
+        const updated = useMagic ? resolveMagicBinding(value, magicLayerIndex, 'zmk') : value
+        return updated || '&none'
+      })
+      .join(' ')
     return `    layer_${index} {\n      label = "${layer.name}";\n      bindings = < ${bindings} >;\n    };`
   })
+  if (useMagic) {
+    const magicBindings = buildMagicLayerBindings(
+      keys,
+      layers[0],
+      'zmk',
+      magicHoldLetters
+    ).join(' ')
+    layerBlocks.push(
+      `    layer_${magicLayerIndex} {\n      label = "${MAGIC_LAYER_NAME}";\n      bindings = < ${magicBindings} >;\n    };`
+    )
+  }
   return `/ {\n  keymap {\n    compatible = "zmk,keymap";\n    default_layer = <0>;\n    layers {\n${layerBlocks.join('\n')}\n    };\n  };\n};\n`
 }
 
@@ -550,12 +657,30 @@ const formatQmkInfo = (keys, matrix) => {
   )
 }
 
-const formatQmkKeymap = (keys, layers) => {
+const formatQmkKeymap = (keys, layers, magicHoldLetters) => {
+  const useMagic = hasMagicBinding(layers)
+  const magicLayerIndex = layers.length
   const layerBlocks = layers
     .map((layer, layerIndex) => {
-      const keycodes = keys.map((key) => layer.bindings[key.id]?.qmk || 'KC_NO')
+      const keycodes = keys.map((key) => {
+        const value = layer.bindings[key.id]?.qmk || 'KC_NO'
+        const updated = useMagic ? resolveMagicBinding(value, magicLayerIndex, 'qmk') : value
+        return updated || 'KC_NO'
+      })
       return `  [${layerIndex}] = LAYOUT(\n    ${keycodes.join(',\n    ')}\n  )`
     })
+    .concat(
+      useMagic
+        ? [
+            `  [${magicLayerIndex}] = LAYOUT(\n    ${buildMagicLayerBindings(
+              keys,
+              layers[0],
+              'qmk',
+              magicHoldLetters
+            ).join(',\n    ')}\n  )`
+          ]
+        : []
+    )
     .join(',\n')
 
   return `#include QMK_KEYBOARD_H\n\nconst uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {\n${layerBlocks}\n};\n`
@@ -584,6 +709,10 @@ function App() {
   const [dragLayerIndex, setDragLayerIndex] = useState(null)
   const [dragOverLayerIndex, setDragOverLayerIndex] = useState(null)
   const [exportTarget, setExportTarget] = useState('zmk')
+  const [layerMode, setLayerMode] = useState('hold')
+  const [magicHoldLetters, setMagicHoldLetters] = useState(DEFAULT_MAGIC_HOLD_LETTERS)
+
+  const magicHoldSet = useMemo(() => new Set(magicHoldLetters), [magicHoldLetters])
 
   const visibleKeys = useMemo(() => parsed.keys.filter((key) => !key.skip), [parsed.keys])
   const selectedKey = useMemo(
@@ -600,7 +729,7 @@ function App() {
       title: group.title,
       sections: group.sections
     }))
-    const layerItems = buildLayerPalette(layers)
+    const layerItems = buildLayerPalette(layers, layerMode)
     if (layerItems.length) {
       groups.push({
         title: 'Layers',
@@ -608,7 +737,7 @@ function App() {
       })
     }
     return groups
-  }, [layers])
+  }, [layers, layerMode])
 
   const viewBox = useMemo(() => {
     if (!parsed.bounds) return '0 0 400 400'
@@ -655,6 +784,18 @@ function App() {
         }
       })
     )
+  }
+
+  const toggleMagicLetter = (letter) => {
+    setMagicHoldLetters((prev) => {
+      const next = new Set(prev)
+      if (next.has(letter)) {
+        next.delete(letter)
+      } else {
+        next.add(letter)
+      }
+      return MAGIC_LETTER_OPTIONS.filter((entry) => next.has(entry))
+    })
   }
 
   const applyPalette = (item) => {
@@ -771,7 +912,10 @@ function App() {
       },
       layers,
       activeLayer,
-      selectedKeyId
+      selectedKeyId,
+      magic: {
+        holdLetters: magicHoldLetters
+      }
     }
     downloadFile('keyboard-config.kb.json', JSON.stringify(payload, null, 2), 'application/json')
   }
@@ -805,6 +949,7 @@ function App() {
       if (typeof data.selectedKeyId === 'string') {
         setSelectedKeyId(data.selectedKeyId)
       }
+      setMagicHoldLetters(normalizeMagicLetters(data.magic?.holdLetters))
       setParseError('')
       setLastLoaded(file.name)
     } catch (error) {
@@ -812,10 +957,10 @@ function App() {
     }
   }
 
-  const zmkKeymap = parsed.matrix ? formatZmkKeymap(visibleKeys, layers) : ''
+  const zmkKeymap = parsed.matrix ? formatZmkKeymap(visibleKeys, layers, magicHoldSet) : ''
   const zmkOverlay = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
   const qmkInfo = parsed.matrix ? formatQmkInfo(visibleKeys, parsed.matrix) : ''
-  const qmkKeymap = parsed.matrix ? formatQmkKeymap(visibleKeys, layers) : ''
+  const qmkKeymap = parsed.matrix ? formatQmkKeymap(visibleKeys, layers, magicHoldSet) : ''
 
   return (
     <div className="app">
@@ -987,6 +1132,24 @@ function App() {
                   {paletteGroups.map((group) => (
                     <div className="palette-group" key={group.title}>
                       <h4 className="palette-title">{group.title}</h4>
+                      {group.title === 'Layers' ? (
+                        <div className="layer-mode">
+                          <p className="layer-mode-label">Layer key mode</p>
+                          <div className="layer-mode-buttons">
+                            {LAYER_MODES.map((mode) => (
+                              <button
+                                key={mode.id}
+                                type="button"
+                                className={layerMode === mode.id ? 'active' : ''}
+                                onClick={() => setLayerMode(mode.id)}
+                                title={mode.description}
+                              >
+                                {mode.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                       {group.sections.map((section) => (
                         <div className="palette-section" key={`${group.title}-${section.title}`}>
                           <p className="palette-subtitle">{section.title}</p>
@@ -1006,9 +1169,46 @@ function App() {
                   ))}
                 </div>
               </>
-            ) : (
-              <p>Select a key on the layout to edit bindings.</p>
-            )}
+              ) : (
+                <p>Select a key on the layout to edit bindings.</p>
+              )}
+          </div>
+
+          <div className="magic-settings">
+            <div className="magic-header">
+              <div>
+                <h3>Magic modifier</h3>
+                <p>Choose which alpha keys get the hold modifier on the Magic layer.</p>
+              </div>
+              <div className="magic-actions">
+                <button type="button" className="ghost" onClick={() => setMagicHoldLetters(MAGIC_LETTER_OPTIONS)}>
+                  All
+                </button>
+                <button type="button" className="ghost" onClick={() => setMagicHoldLetters([])}>
+                  None
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setMagicHoldLetters(DEFAULT_MAGIC_HOLD_LETTERS)}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div className="magic-grid">
+              {MAGIC_LETTER_OPTIONS.map((letter) => (
+                <button
+                  key={letter}
+                  type="button"
+                  className={`magic-letter ${magicHoldSet.has(letter) ? 'active' : ''}`}
+                  onClick={() => toggleMagicLetter(letter)}
+                >
+                  {letter}
+                </button>
+              ))}
+            </div>
+            <p className="magic-note">Only affects keys whose base layer binding is the matching letter.</p>
           </div>
         </section>
       </main>
