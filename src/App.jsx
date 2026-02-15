@@ -1593,7 +1593,7 @@ function App() {
                       <h4 className="palette-title">{group.title}</h4>
                       {group.title === 'Layers' ? (
                         <div className="layer-mode">
-                          <p className="layer-mode-label">Layer key mode</p>
+                          <p className="palette-subtitle">Layer key mode</p>
                           <div className="layer-mode-buttons">
                             {LAYER_MODES.map((mode) => (
                               <button
