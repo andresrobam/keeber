@@ -252,19 +252,21 @@ const parseErgogen = (yamlText) => {
   zoneEntries.forEach(([zoneName, zone], zoneIndex) => {
     const anchor = zone?.anchor || {}
     const anchorShift = anchor.shift || [0, 0]
-    const zoneRotate = toNumber(anchor.rotate, 0) + toNumber(zone.rotate, 0) + globalRotate
-    let anchorX = toNumber(anchorShift[0], 0)
-    let anchorY = toNumber(anchorShift[1], 0)
-
+    const anchorShiftX = parseDistance(anchorShift?.[0] ?? 0, unit)
+    const anchorShiftY = parseDistance(anchorShift?.[1] ?? 0, unit)
+    const anchorRotate = toNumber(anchor.rotate, 0)
+    let refKey = null
     if (anchor.ref) {
-      const refKey = keyById[anchor.ref]
-      if (refKey) {
-        anchorX += refKey.x
-        anchorY += refKey.y
-      } else {
+      refKey = keyById[anchor.ref]
+      if (!refKey) {
         warnings.push(`Anchor ref ${anchor.ref} not found for zone ${zoneName}`)
       }
     }
+    const baseRotate = refKey ? refKey.rot : globalRotate
+    const zoneRotate = baseRotate + anchorRotate + toNumber(zone.rotate, 0)
+    const anchorShiftRotated = rotatePoint(anchorShiftX, anchorShiftY, baseRotate + anchorRotate)
+    let anchorX = (refKey ? refKey.x : 0) + anchorShiftRotated.x
+    let anchorY = (refKey ? refKey.y : 0) + anchorShiftRotated.y
 
     const rows = zone?.rows || {}
     const rowNames = Object.keys(rows)
