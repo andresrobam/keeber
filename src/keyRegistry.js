@@ -84,6 +84,36 @@ export const KEY_GROUPS = [
           { label: '←', zmk: '&kp LEFT', qmk: 'KC_LEFT' },
           { label: '→', zmk: '&kp RIGHT', qmk: 'KC_RGHT' }
         ]
+      },
+      {
+        title: 'Numpad',
+        items: [
+          { label: 'Num', zmk: '&kp KP_NLCK', qmk: 'KC_NUM' },
+          { label: 'KP /', zmk: '&kp KP_DIVIDE', qmk: 'KC_PSLS' },
+          { label: 'KP *', zmk: '&kp KP_MULTIPLY', qmk: 'KC_PAST' },
+          { label: 'KP -', zmk: '&kp KP_MINUS', qmk: 'KC_PMNS' },
+          { label: 'KP +', zmk: '&kp KP_PLUS', qmk: 'KC_PPLS' },
+          { label: 'KP Ent', zmk: '&kp KP_ENTER', qmk: 'KC_PENT' },
+          { label: 'KP .', zmk: '&kp KP_DOT', qmk: 'KC_PDOT' },
+          { label: 'KP 0', zmk: '&kp KP_N0', qmk: 'KC_P0' },
+          { label: 'KP 1', zmk: '&kp KP_N1', qmk: 'KC_P1' },
+          { label: 'KP 2', zmk: '&kp KP_N2', qmk: 'KC_P2' },
+          { label: 'KP 3', zmk: '&kp KP_N3', qmk: 'KC_P3' },
+          { label: 'KP 4', zmk: '&kp KP_N4', qmk: 'KC_P4' },
+          { label: 'KP 5', zmk: '&kp KP_N5', qmk: 'KC_P5' },
+          { label: 'KP 6', zmk: '&kp KP_N6', qmk: 'KC_P6' },
+          { label: 'KP 7', zmk: '&kp KP_N7', qmk: 'KC_P7' },
+          { label: 'KP 8', zmk: '&kp KP_N8', qmk: 'KC_P8' },
+          { label: 'KP 9', zmk: '&kp KP_N9', qmk: 'KC_P9' }
+        ]
+      },
+      {
+        title: 'Print/Scroll/Pause',
+        items: [
+          { label: 'PrtSc', zmk: '&kp PSCRN', qmk: 'KC_PSCR' },
+          { label: 'ScrLk', zmk: '&kp SLCK', qmk: 'KC_SLCK' },
+          { label: 'Pause', zmk: '&kp PAUSE_BREAK', qmk: 'KC_PAUS' }
+        ]
       }
     ]
   },
