@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import yaml from 'js-yaml'
 import './App.css'
 import { KEY_GROUPS } from './keyRegistry'
@@ -186,6 +186,89 @@ const buildLabelLookup = (items) => {
     tokens.forEach((token) => lookup.set(token, item.label))
   })
   return lookup
+}
+
+const buildBindingLookup = (items) => {
+  const lookup = new Map()
+  items.forEach((item) => {
+    const tokens = new Set()
+    const addToken = (value) => {
+      const token = parseBindingToken(value)
+      if (token) tokens.add(normalizeToken(token))
+    }
+    addToken(item.zmk)
+    addToken(item.qmk)
+    if (Array.isArray(item.aliases)) {
+      item.aliases.forEach(addToken)
+    }
+    tokens.forEach((token) => lookup.set(token, item))
+  })
+  return lookup
+}
+
+const isEditableElement = (target) => {
+  if (!target) return false
+  if (target.closest?.('.capture-controls')) return false
+  if (target.closest?.('.panel-actions')) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+const CODE_TOKEN_MAP = {
+  Space: 'SPACE',
+  Enter: 'ENTER',
+  NumpadEnter: 'ENTER',
+  Escape: 'ESC',
+  Tab: 'TAB',
+  Backspace: 'BSPC',
+  Delete: 'DEL',
+  Insert: 'INS',
+  Home: 'HOME',
+  End: 'END',
+  PageUp: 'PGUP',
+  PageDown: 'PGDN',
+  ArrowUp: 'UP',
+  ArrowDown: 'DOWN',
+  ArrowLeft: 'LEFT',
+  ArrowRight: 'RIGHT',
+  Minus: 'MINUS',
+  Equal: 'EQUAL',
+  BracketLeft: 'LBKT',
+  BracketRight: 'RBKT',
+  Backslash: 'BSLH',
+  Semicolon: 'SCLN',
+  Quote: 'QUOT',
+  Comma: 'COMM',
+  Period: 'DOT',
+  Slash: 'SLSH',
+  Backquote: 'GRAVE',
+  ShiftLeft: 'LSHFT',
+  ShiftRight: 'RSHFT',
+  ControlLeft: 'LCTRL',
+  ControlRight: 'RCTRL',
+  AltLeft: 'LALT',
+  AltRight: 'RALT',
+  MetaLeft: 'LGUI',
+  MetaRight: 'RGUI'
+}
+
+const getCaptureToken = (event) => {
+  if (!event) return ''
+  if ((event.ctrlKey || event.altKey || event.metaKey) && !['Control', 'Alt', 'Meta'].includes(event.key)) {
+    return ''
+  }
+  const code = event.code || ''
+  if (CODE_TOKEN_MAP[code]) return CODE_TOKEN_MAP[code]
+  if (code.startsWith('Key')) return code.slice(3).toUpperCase()
+  if (code.startsWith('Digit')) return code.slice(5)
+  if (code.startsWith('Numpad')) {
+    const value = code.slice(6)
+    if (/^\d$/.test(value)) return value
+  }
+  if (/^F\d{1,2}$/.test(code)) return code
+  if (event.key && event.key.length === 1) return event.key.toUpperCase()
+  return ''
 }
 
 const expandDots = (input) => {
@@ -737,10 +820,78 @@ function App() {
   const [exportTarget, setExportTarget] = useState('zmk')
   const [layerMode, setLayerMode] = useState('hold')
   const [magicHoldLetters, setMagicHoldLetters] = useState(DEFAULT_MAGIC_HOLD_LETTERS)
+  const [captureMode, setCaptureMode] = useState(false)
+  const [captureIndex, setCaptureIndex] = useState(0)
+  const [captureRowDirection, setCaptureRowDirection] = useState('asc')
+  const [captureColDirection, setCaptureColDirection] = useState('asc')
 
   const magicHoldSet = useMemo(() => new Set(magicHoldLetters), [magicHoldLetters])
 
   const visibleKeys = useMemo(() => parsed.keys.filter((key) => !key.skip), [parsed.keys])
+  const captureKeys = useMemo(() => {
+    const rowDirection = captureRowDirection === 'desc' ? -1 : 1
+    const colDirection = captureColDirection === 'desc' ? -1 : 1
+    const isMirrored = Boolean(parsed.matrix?.mirrored)
+
+    if (isMirrored) {
+      const byRow = new Map()
+      const rowIndexes = new Set()
+      visibleKeys.forEach((key) => {
+        const list = byRow.get(key.rowIndex) || []
+        list.push(key)
+        byRow.set(key.rowIndex, list)
+        rowIndexes.add(key.rowIndex)
+      })
+
+      const orderedRows = Array.from(rowIndexes).sort((a, b) => (a - b) * rowDirection)
+      const next = []
+      orderedRows.forEach((rowIndex) => {
+        const rowKeys = byRow.get(rowIndex) || []
+        const mainKeys = rowKeys.filter((key) => !key.mirror_of)
+        const mirrorKeys = rowKeys.filter((key) => key.mirror_of)
+        mainKeys.sort((a, b) => {
+          if (a.colIndex !== b.colIndex) return (a.colIndex - b.colIndex) * colDirection
+          if (a.zoneOrder !== b.zoneOrder) return a.zoneOrder - b.zoneOrder
+          return a.id.localeCompare(b.id)
+        })
+        mirrorKeys.sort((a, b) => {
+          if (a.colIndex !== b.colIndex) return (b.colIndex - a.colIndex) * colDirection
+          if (a.zoneOrder !== b.zoneOrder) return a.zoneOrder - b.zoneOrder
+          return a.id.localeCompare(b.id)
+        })
+        next.push(...mainKeys, ...mirrorKeys)
+      })
+      return next
+    }
+
+    const next = [...visibleKeys]
+    const primary = 'col'
+    const secondary = 'row'
+    next.sort((a, b) => {
+      const primaryDiff =
+        primary === 'row'
+          ? (a.rowIndex - b.rowIndex) * rowDirection
+          : (a.colIndex - b.colIndex) * colDirection
+      if (primaryDiff !== 0) return primaryDiff
+      const secondaryDiff =
+        secondary === 'row'
+          ? (a.rowIndex - b.rowIndex) * rowDirection
+          : (a.colIndex - b.colIndex) * colDirection
+      if (secondaryDiff !== 0) return secondaryDiff
+      if (a.zoneOrder !== b.zoneOrder) return a.zoneOrder - b.zoneOrder
+      return a.id.localeCompare(b.id)
+    })
+    return next
+  }, [
+    visibleKeys,
+    parsed.matrix?.mirrored,
+    captureRowDirection,
+    captureColDirection
+  ])
+  const captureIndexById = useMemo(
+    () => new Map(captureKeys.map((key, index) => [key.id, index])),
+    [captureKeys]
+  )
   const selectedKey = useMemo(
     () => visibleKeys.find((key) => key.id === selectedKeyId) || null,
     [visibleKeys, selectedKeyId]
@@ -750,6 +901,7 @@ function App() {
   const binding = selectedKey ? layer?.bindings[selectedKey.id] : null
   const registryItems = useMemo(() => flattenKeyGroups(KEY_GROUPS), [])
   const labelLookup = useMemo(() => buildLabelLookup(registryItems), [registryItems])
+  const bindingLookup = useMemo(() => buildBindingLookup(registryItems), [registryItems])
   const paletteGroups = useMemo(() => {
     const groups = KEY_GROUPS.map((group) => ({
       title: group.title,
@@ -793,6 +945,13 @@ function App() {
 
   const renderKeys = showGhosts ? parsed.keys : visibleKeys
 
+  useEffect(() => {
+    if (!selectedKeyId) return
+    const nextIndex = captureIndexById.get(selectedKeyId)
+    if (nextIndex === undefined) return
+    setCaptureIndex(nextIndex)
+  }, [captureIndexById, selectedKeyId])
+
   const updateBinding = (field, value) => {
     if (!selectedKey) return
     setLayers((prev) =>
@@ -805,6 +964,25 @@ function App() {
             [selectedKey.id]: {
               zmk: field === 'zmk' ? value : layerItem.bindings[selectedKey.id]?.zmk || '',
               qmk: field === 'qmk' ? value : layerItem.bindings[selectedKey.id]?.qmk || ''
+            }
+          }
+        }
+      })
+    )
+  }
+
+  const updateKeyBinding = (keyId, value) => {
+    if (!keyId) return
+    setLayers((prev) =>
+      prev.map((layerItem, index) => {
+        if (index !== activeLayer) return layerItem
+        return {
+          ...layerItem,
+          bindings: {
+            ...layerItem.bindings,
+            [keyId]: {
+              zmk: value?.zmk || '',
+              qmk: value?.qmk || ''
             }
           }
         }
@@ -838,6 +1016,18 @@ function App() {
         }
       })
     )
+  }
+
+  const startCapture = () => {
+    if (captureKeys.length === 0) return
+    const startIndex = Math.max(0, captureIndexById.get(selectedKeyId) ?? 0)
+    setCaptureIndex(startIndex)
+    setSelectedKeyId(captureKeys[startIndex]?.id || null)
+    setCaptureMode(true)
+  }
+
+  const stopCapture = () => {
+    setCaptureMode(false)
   }
 
   const addLayer = () => {
@@ -984,6 +1174,28 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    if (!captureMode) return undefined
+    const handleKeydown = (event) => {
+      if (event.repeat) return
+      if (isEditableElement(event.target)) return
+      const token = getCaptureToken(event)
+      if (!token) return
+      const lookupKey = normalizeToken(token)
+      const bindingItem = bindingLookup.get(lookupKey)
+      if (!bindingItem) return
+      const currentKey = captureKeys[captureIndex]
+      if (!currentKey) return
+      event.preventDefault()
+      updateKeyBinding(currentKey.id, bindingItem)
+      const nextIndex = captureIndex + 1 >= captureKeys.length ? 0 : captureIndex + 1
+      setCaptureIndex(nextIndex)
+      setSelectedKeyId(captureKeys[nextIndex]?.id || currentKey.id)
+    }
+    window.addEventListener('keydown', handleKeydown)
+    return () => window.removeEventListener('keydown', handleKeydown)
+  }, [bindingLookup, captureIndex, captureMode, captureKeys, activeLayer])
+
   const zmkKeymap = parsed.matrix ? formatZmkKeymap(visibleKeys, layers, magicHoldSet) : ''
   const zmkOverlay = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
   const qmkInfo = parsed.matrix ? formatQmkInfo(visibleKeys, parsed.matrix) : ''
@@ -1023,6 +1235,39 @@ function App() {
             <h2>Layout Preview</h2>
             <div className="panel-actions">
               <p>Click a key to assign bindings for the active layer.</p>
+              <div className="capture-controls">
+                <button
+                  type="button"
+                  className={captureMode ? 'primary' : 'ghost'}
+                  onClick={captureMode ? stopCapture : startCapture}
+                >
+                  {captureMode ? 'Stop capture' : 'Capture keys'}
+                </button>
+                <label className="toggle capture-toggle">
+                  <input
+                    type="checkbox"
+                    checked={captureRowDirection === 'desc'}
+                    onChange={(event) =>
+                      setCaptureRowDirection(event.target.checked ? 'desc' : 'asc')
+                    }
+                  />
+                  Row decreases
+                </label>
+                <label className="toggle capture-toggle">
+                  <input
+                    type="checkbox"
+                    checked={captureColDirection === 'desc'}
+                    onChange={(event) =>
+                      setCaptureColDirection(event.target.checked ? 'desc' : 'asc')
+                    }
+                  />
+                  Column decreases
+                </label>
+                <div className="capture-status">
+                  <span className={`capture-indicator ${captureMode ? 'active' : ''}`} />
+                  {captureMode ? 'Listening' : 'Capture off'}
+                </div>
+              </div>
               <label className="toggle">
                 <input
                   type="checkbox"
@@ -1079,7 +1324,13 @@ function App() {
                   key={key.id}
                   transform={`rotate(${displayRot} ${displayX} ${displayY})`}
                   onClick={() => {
-                    if (!isGhost) setSelectedKeyId(key.id)
+                    if (!isGhost) {
+                      setSelectedKeyId(key.id)
+                      if (captureMode) {
+                        const nextIndex = captureIndexById.get(key.id)
+                        if (nextIndex !== undefined) setCaptureIndex(nextIndex)
+                      }
+                    }
                   }}
                   className={`key ${isSelected ? 'selected' : ''} ${isGhost ? 'ghost' : ''}`}
                 >
