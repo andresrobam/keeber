@@ -1,0 +1,329 @@
+meta:
+  engine: 4.2.1
+units:
+  u: 19.05
+  p: 2
+
+points:
+  zones:
+    matrix:
+      anchor:
+        rotate: 0
+      columns:
+        farpinky:
+          key.column_net: col0
+          rows:
+            num.key:
+              led_prev: LED6
+              led_next: LED7
+            top.key:
+              led_prev: LED19
+              led_next: LED20
+            home.key:
+              led_prev: LED20
+              led_next: LED21
+            bottom.skip: true
+        pinky:
+          key.splay: -2
+          key.origin: [-12, -19]
+          key.stagger: 10
+          key.column_net: col1
+          rows:
+            num.key:
+              led_prev: LED5
+              led_next: LED6
+            top.key:
+              led_prev: LED7
+              led_next: LED8
+            home.key:
+              led_prev: LED18
+              led_next: LED19
+            bottom.key:
+              led_prev: LED21
+              led_next: LED22
+        ring:
+          key.splay: -2
+          key.origin: [-12, -19]
+          key.stagger: 2
+          key.column_net: col2
+          rows:
+            num.key:
+              led_prev: LED4
+              led_next: LED5
+            top.key:
+              led_prev: LED8
+              led_next: LED9
+            home.key:
+              led_prev: LED17
+              led_next: LED18
+            bottom.key:
+              led_prev: LED22
+              led_next: LED23
+        middle:
+          key.stagger: 5
+          key.column_net: col3
+          rows:
+            num.key:
+              led_prev: LED3
+              led_next: LED4
+            top.key:
+              led_prev: LED9
+              led_next: LED10
+            home.key:
+              led_prev: LED16
+              led_next: LED17
+            bottom.key:
+              led_prev: LED23
+              led_next: LED24
+        index:
+          key.stagger: -4
+          key.column_net: col4
+          rows:
+            num.key:
+              led_prev: LED2
+              led_next: LED3
+            top.key:
+              led_prev: LED10
+              led_next: LED11
+            home.key:
+              led_prev: LED15
+              led_next: LED16
+            bottom.key:
+              led_prev: LED24
+              led_next: LED25
+        inner:
+          key.stagger: -4
+          key.column_net: col5
+          rows:
+            num.key:
+              led_prev: LED1
+              led_next: LED2
+            top.key:
+              led_prev: LED11
+              led_next: LED12
+            home.key:
+              led_prev: LED14
+              led_next: LED15
+            bottom.key:
+              led_prev: LED25
+              led_next: LED26
+        macro:
+          key.stagger: -4
+          key.column_net: col6
+          rows:
+            num.key:
+              led_prev: LED0
+              led_next: LED1
+            top.key:
+              led_prev: LED12
+              led_next: LED13
+            home.key:
+              led_prev: LED13
+              led_next: LED14
+            bottom.key:
+              led_prev: LED26
+              led_next: LED27
+      rows:
+        bottom:
+          row_net: row2
+        home:
+          row_net: row3
+        top:
+          row_net: row4
+        num:
+          row_net: row5
+
+    thumbfan:
+      anchor:
+        ref: matrix_inner_bottom
+        shift: [-20, -42]
+      columns:
+        tinner:
+          key.splay: -4
+          key.column_net: col4
+          rows:
+            ttop.key:
+              led_prev: LED29
+              led_next: LED30
+            tbottom.key:
+              led_prev: LED30
+              led_next: LED31
+        tcenter:
+          key.spread: 20
+          key.splay: -2
+          key.origin: [-11.75, -9]
+          key.column_net: col5
+          rows:
+            ttop.key:
+              led_prev: LED28
+              led_next: LED29
+            tbottom.key:
+              led_prev: LED31
+              led_next: LED32
+        touter:
+          key.spread: 20
+          key.splay: -3
+          key.origin: [-80, -9]
+          key.column_net: col6
+          rows:
+            ttop.key:
+              led_prev: LED27
+              led_next: LED28
+            tbottom.key:
+              led_prev: LED32
+              led_next: LED33
+      rows:
+        tbottom:
+          row_net: row0
+        ttop:
+          row_net: row1
+  rotate: -20
+  mirror:
+    ref: matrix_macro_num
+    distance: 2u
+      
+outlines:
+  panel:
+    - what: rectangle
+      where: /^(matrix|thumbfan)_.*/
+      size: [30, 30]
+  controller:
+    - what: rectangle
+      where: matrix_macro_num
+      size: [20, 60]
+      adjust:
+        shift: [25, -15]
+  combined:
+    - name: panel
+    - operation: add
+      name: controller
+pcbs:
+  main:
+    template: kicad8
+    outlines:
+      - outline: combined
+    footprints:
+      switch:
+        what: ceoloide/switch_mx
+        where: /^(matrix|thumbfan)_.*/
+        params:
+          include_keycap: true
+          reversible: true
+          hotswap: true
+          from: "{{column_net}}"
+          to: "{{colrow}}" 
+        adjust:
+          rotate: 180
+      diode:
+        what: ceoloide/diode_tht_sod123
+        where: /^(matrix|thumbfan)_.*/
+        params:
+          from: "{{colrow}}"
+          to: "{{row_net}}"
+          reversible: true
+          include_traces_vias: true
+        adjust:
+          shift: [-7, 5]
+          rotate: -90
+      rgb:
+        what: ceoloide/led_sk6812mini-e
+        where: /^(matrix|thumbfan)_.*/
+        params:
+          P2: "{{key.led_next}}" # dout
+          P4: "{{key.led_prev}}" # din
+          reversible: true
+        adjust:
+          shift: [0, 5]
+      mcu:
+        what: ceoloide/mcu_nice_nano
+        where:
+          ref: matrix_macro_num
+          shift: [25, -2]
+        params:
+          reversible: true
+          P4: col0
+          P5: col1
+          P6: col2
+          P7: col3
+          P8: col4
+          P9: col5
+          P10: col6
+          P16: row0
+          P14: row1
+          P15: row2
+          P18: row3
+          P19: row4
+          P20: row5
+          P4_label: P4
+          P5_label: P5
+          P6_label: P6
+          P7_label: P7
+          P8_label: P8
+          P9_label: P9
+          P10_label: P10
+          P16_label: P16
+          P14_label: P14
+          P15_label: P15
+          P18_label: P18
+          P19_label: P19
+          P20_label: P20
+      trrs:
+        what: trrs
+        where:
+          ref: matrix_macro_num
+          shift: [5, -27]
+          rotate: 180
+        params:
+          reverse: true
+          A: VCC
+          B: P2
+          C: GND
+          D: GND
+        adjust:
+          shift: [-30,0]
+          rotate: 90
+      power_switch:
+        what: slider
+        where:
+          ref: matrix_macro_home
+          shift: [43, -18]
+          rotate: 180
+        params:
+          from: RAW
+          to: BAT_P
+        adjust:
+          shift: [10,-20]
+          rotate: 90
+      power_switch_back:
+        what: slider
+        where:
+          ref: matrix_macro_home
+          shift: [43, -18]
+          rotate: 180
+        params:
+          from: BAT_P
+          to: RAW
+          side: B
+        adjust:
+          shift: [10,-20]
+          rotate: 90
+      battery_connector:
+        what: ceoloide/battery_connector_jst_ph_2
+        where:
+          ref: matrix_macro_home
+          shift: [25, 5]
+          rotate: 0
+        params:
+          reversible: true
+      level_shifter:
+        what: sot-23-5
+        where:
+          ref: matrix_macro_num
+          shift: [18, -27]
+        params:
+          L1: GND
+          L2: P3
+          L3: GND
+          L4: LED0
+          L5: VCC
+          back: true

@@ -1,0 +1,16 @@
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
