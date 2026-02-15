@@ -284,6 +284,23 @@ body {
   font-size: 13px;
 }
 
+.binding-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.binding-row .field {
+  margin-bottom: 0;
+}
+
+.binding-row input[readonly] {
+  color: var(--ink-soft);
+  -webkit-text-fill-color: var(--ink-soft);
+  cursor: default;
+}
+
 .field {
   display: flex;
   flex-direction: column;

@@ -971,21 +971,15 @@ function App() {
                     {selectedKey.col} ({selectedKey.col_net || 'no net'})
                   </p>
                 </div>
-                <div className="field">
-                  <label>ZMK binding</label>
-                  <input
-                    value={binding?.zmk || ''}
-                    onChange={(event) => updateBinding('zmk', event.target.value)}
-                    placeholder="&kp A"
-                  />
-                </div>
-                <div className="field">
-                  <label>QMK keycode</label>
-                  <input
-                    value={binding?.qmk || ''}
-                    onChange={(event) => updateBinding('qmk', event.target.value)}
-                    placeholder="KC_A"
-                  />
+                <div className="binding-row">
+                  <div className="field">
+                    <label>ZMK binding</label>
+                    <input value={binding?.zmk || ''} placeholder="&kp A" readOnly />
+                  </div>
+                  <div className="field">
+                    <label>QMK binding</label>
+                    <input value={binding?.qmk || ''} placeholder="KC_A" readOnly />
+                  </div>
                 </div>
                 <div className="palette">
                   {paletteGroups.map((group) => (
