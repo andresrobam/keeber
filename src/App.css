@@ -332,7 +332,7 @@ body {
 }
 
 .magic-settings {
-  margin-top: 16px;
+  margin-top: 0;
   padding: 14px;
   border-radius: 16px;
   background: rgba(90, 167, 162, 0.08);
@@ -409,7 +409,7 @@ body {
 }
 
 .unicode-settings {
-  margin-top: 12px;
+  margin-top: 0;
   padding: 12px;
   border-radius: 14px;
   background: rgba(90, 167, 162, 0.08);
@@ -549,6 +549,12 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.palette-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .palette-tab {

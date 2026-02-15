@@ -876,7 +876,7 @@ const downloadFile = (filename, content, type = 'text/plain') => {
 const saveFileWithPicker = async (filename, content, type = 'text/plain') => {
   if (typeof window === 'undefined' || !window.showSaveFilePicker) {
     downloadFile(filename, content, type)
-    return
+    return filename
   }
 
   try {
@@ -891,9 +891,11 @@ const saveFileWithPicker = async (filename, content, type = 'text/plain') => {
     const writable = await handle.createWritable()
     await writable.write(new Blob([content], { type }))
     await writable.close()
+    return handle?.name || filename
   } catch (error) {
-    if (error?.name === 'AbortError') return
+    if (error?.name === 'AbortError') return null
     downloadFile(filename, content, type)
+    return filename
   }
 }
 
@@ -1064,6 +1066,7 @@ function App() {
   }
 
   const renderKeys = showGhosts ? parsed.keys : visibleKeys
+  const activePaletteGroups = paletteTabs[paletteTab] || []
 
   useEffect(() => {
     if (!selectedKeyId) return
@@ -1294,7 +1297,7 @@ function App() {
     setLastLoaded(file.name)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!parsed.matrix) return
     const saveName = lastLoaded || DEFAULT_SAVE_NAME
     const payload = {
@@ -1323,7 +1326,14 @@ function App() {
         holdLetters: magicHoldLetters
       }
     }
-    saveFileWithPicker(saveName, JSON.stringify(payload, null, 2), 'application/json')
+    const savedName = await saveFileWithPicker(
+      saveName,
+      JSON.stringify(payload, null, 2),
+      'application/json'
+    )
+    if (savedName) {
+      setLastLoaded(savedName)
+    }
   }
 
   const handleLoadSave = async (event) => {
@@ -1635,44 +1645,48 @@ function App() {
                       </button>
                     ))}
                   </div>
-                  {(paletteTabs[paletteTab] || []).map((group) => (
-                    <div className="palette-group" key={group.title}>
-                      <h4 className="palette-title">{group.title}</h4>
-                      {group.title === 'Layers' ? (
-                        <div className="layer-mode">
-                          <p className="palette-subtitle">Layer key mode</p>
-                          <div className="layer-mode-buttons">
-                            {LAYER_MODES.map((mode) => (
-                              <button
-                                key={mode.id}
-                                type="button"
-                                className={layerMode === mode.id ? 'active' : ''}
-                                onClick={() => setLayerMode(mode.id)}
-                                title={mode.description}
-                              >
-                                {mode.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                      {group.sections.map((section) => (
-                        <div className="palette-section" key={`${group.title}-${section.title}`}>
-                          <p className="palette-subtitle">{section.title}</p>
-                          <div className="palette-grid">
-                            {section.items.map((item) => (
-                              <button
-                                key={`${group.title}-${section.title}-${item.label}`}
-                                onClick={() => applyPalette(item)}
-                              >
-                                {item.label}
-                              </button>
-                            ))}
-                          </div>
+                  {activePaletteGroups.length ? (
+                    <div className={`palette-groups ${paletteTab}`}>
+                      {activePaletteGroups.map((group) => (
+                        <div className="palette-group" key={group.title}>
+                          <h4 className="palette-title">{group.title}</h4>
+                          {group.title === 'Layers' ? (
+                            <div className="layer-mode">
+                              <p className="palette-subtitle">Layer key mode</p>
+                              <div className="layer-mode-buttons">
+                                {LAYER_MODES.map((mode) => (
+                                  <button
+                                    key={mode.id}
+                                    type="button"
+                                    className={layerMode === mode.id ? 'active' : ''}
+                                    onClick={() => setLayerMode(mode.id)}
+                                    title={mode.description}
+                                  >
+                                    {mode.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                          {group.sections.map((section) => (
+                            <div className="palette-section" key={`${group.title}-${section.title}`}>
+                              <p className="palette-subtitle">{section.title}</p>
+                              <div className="palette-grid">
+                                {section.items.map((item) => (
+                                  <button
+                                    key={`${group.title}-${section.title}-${item.label}`}
+                                    onClick={() => applyPalette(item)}
+                                  >
+                                    {item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </div>
-                  ))}
+                  ) : null}
                   {paletteTab === 'other' ? (
                     <>
                       <div className="unicode-settings">
