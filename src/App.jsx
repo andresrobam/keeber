@@ -714,8 +714,11 @@ const getAlphaToken = (binding) => {
   return ''
 }
 
-const resolveMagicBinding = (binding, magicLayerIndex, target) => {
+const resolveMagicBinding = (binding, magicLayerIndex, target, unicodeOs) => {
   if (!isMagicBinding(binding)) return binding
+  if (unicodeOs === 'macos') {
+    return target === 'zmk' ? '&kp LGUI' : 'KC_LGUI'
+  }
   return target === 'zmk'
     ? `&lt ${magicLayerIndex} LGUI`
     : `LT(${magicLayerIndex}, KC_LGUI)`
@@ -733,21 +736,24 @@ const buildMagicLayerBindings = (keys, baseLayer, target, magicHoldLetters) =>
   })
 
 const formatZmkKeymap = (keys, layers, magicHoldLetters, defaultLayer, unicodeOs) => {
-  const useMagic = hasMagicBinding(layers)
+  const hasMagic = hasMagicBinding(layers)
   const useUnicode = hasUnicodeBinding(layers, 'zmk')
   const unicodeConfig = getUnicodeOsOption(unicodeOs)
   const magicLayerIndex = layers.length
+  const enableMagicLayer = hasMagic && unicodeOs !== 'macos'
   const layerBlocks = layers.map((layer, index) => {
     const bindings = keys
       .map((key) => {
         const value = layer.bindings[key.id]?.zmk || '&none'
-        const updated = useMagic ? resolveMagicBinding(value, magicLayerIndex, 'zmk') : value
+        const updated = hasMagic
+          ? resolveMagicBinding(value, magicLayerIndex, 'zmk', unicodeOs)
+          : value
         return updated || '&none'
       })
       .join(' ')
     return `    layer_${index} {\n      label = "${layer.name}";\n      bindings = < ${bindings} >;\n    };`
   })
-  if (useMagic) {
+  if (enableMagicLayer) {
     const magicBindings = buildMagicLayerBindings(
       keys,
       layers[0],
@@ -810,22 +816,25 @@ const formatQmkInfo = (keys, matrix) => {
 }
 
 const formatQmkKeymap = (keys, layers, magicHoldLetters, defaultLayer, unicodeOs) => {
-  const useMagic = hasMagicBinding(layers)
+  const hasMagic = hasMagicBinding(layers)
   const useUnicode = hasUnicodeBinding(layers, 'qmk')
   const unicodeConfig = getUnicodeOsOption(unicodeOs)
   const magicLayerIndex = layers.length
+  const enableMagicLayer = hasMagic && unicodeOs !== 'macos'
   const safeDefault = clampLayerIndex(defaultLayer, layers)
   const layerBlocks = layers
     .map((layer, layerIndex) => {
       const keycodes = keys.map((key) => {
         const value = layer.bindings[key.id]?.qmk || 'KC_NO'
-        const updated = useMagic ? resolveMagicBinding(value, magicLayerIndex, 'qmk') : value
+        const updated = hasMagic
+          ? resolveMagicBinding(value, magicLayerIndex, 'qmk', unicodeOs)
+          : value
         return updated || 'KC_NO'
       })
       return `  [${layerIndex}] = LAYOUT(\n    ${keycodes.join(',\n    ')}\n  )`
     })
     .concat(
-      useMagic
+      enableMagicLayer
         ? [
             `  [${magicLayerIndex}] = LAYOUT(\n    ${buildMagicLayerBindings(
               keys,
