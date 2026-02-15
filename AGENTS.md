@@ -20,7 +20,6 @@ Client-only web app for configuring custom keyboards from Ergogen YAML.
 - Key parsing includes:
   - Zones, columns, rows, anchor refs, stagger, spread.
   - Mirroring handled in the parser.
-  - `key.origin` and `key.splay` is currently ignored.
 - Rendering flips Y at render time (not during parsing).
 
 ## Outputs

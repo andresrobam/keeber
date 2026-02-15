@@ -279,6 +279,7 @@ const parseErgogen = (yamlText) => {
     const colEntries = Object.entries(columns)
     let columnX = 0
     let columnY = 0
+    let columnRotation = zoneRotate
     colEntries.forEach(([colName, column]) => {
       if (colIndexByName[colName] === undefined) {
         colIndexByName[colName] = colList.length
@@ -287,9 +288,22 @@ const parseErgogen = (yamlText) => {
       const columnKey = column?.key || {}
       const spread = toNumber(columnKey.spread ?? zone?.key?.spread ?? unit, unit)
       const stagger = toNumber(columnKey.stagger ?? zone?.key?.stagger ?? 0, 0)
+      const splay = toNumber(columnKey.splay ?? zone?.key?.splay ?? 0, 0)
+      const originValue = columnKey.origin ?? zone?.key?.origin ?? [0, 0]
+      const originX = parseDistance(originValue?.[0] ?? 0, unit)
+      const originY = parseDistance(originValue?.[1] ?? 0, unit)
       const colRows = column?.rows || {}
 
       columnY += stagger
+
+      if (splay !== 0) {
+        const pivotX = columnX + originX
+        const pivotY = columnY + originY
+        const rotatedAnchor = rotatePoint(columnX - pivotX, columnY - pivotY, splay)
+        columnX = pivotX + rotatedAnchor.x
+        columnY = pivotY + rotatedAnchor.y
+      }
+      columnRotation += splay
 
       rowNames.forEach((rowName, rowIndex) => {
         const rowInfo = rows[rowName] || {}
@@ -297,7 +311,7 @@ const parseErgogen = (yamlText) => {
         const isSkipped = rowEntry?.skip === true || rowEntry?.key?.skip === true
         const localX = columnX
         const localY = columnY + rowIndex * unit
-        const rotated = rotatePoint(localX, localY, zoneRotate)
+        const rotated = rotatePoint(localX, localY, columnRotation)
         const keyX = rotated.x + anchorX
         const keyY = rotated.y + anchorY
         const keyId = `${zoneName}_${colName}_${rowName}`
@@ -310,7 +324,7 @@ const parseErgogen = (yamlText) => {
           col_net: columnKey.column_net || '',
           x: keyX,
           y: keyY,
-          rot: zoneRotate,
+          rot: columnRotation,
           unit,
           rowIndex: rowIndexByName[rowName],
           colIndex: colIndexByName[colName],

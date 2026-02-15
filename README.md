@@ -28,4 +28,3 @@ Open the dev server URL and load an Ergogen YAML file.
 
 - Zones, columns, rows, anchors, stagger, and spread are supported.
 - Mirroring is handled in the parser.
-- `key.origin` and `key.splay` is currently ignored.
