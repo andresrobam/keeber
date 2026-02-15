@@ -1435,11 +1435,11 @@ function App() {
                 <div className="binding-row">
                   <div className="field">
                     <label>ZMK binding</label>
-                    <input value={binding?.zmk || ''} placeholder="&kp A" readOnly />
+                    <input value={binding?.zmk || '&none'} placeholder="&none" readOnly />
                   </div>
                   <div className="field">
                     <label>QMK binding</label>
-                    <input value={binding?.qmk || ''} placeholder="KC_A" readOnly />
+                    <input value={binding?.qmk || 'KC_NO'} placeholder="KC_NO" readOnly />
                   </div>
                 </div>
                 <div className="palette">

@@ -57,7 +57,10 @@ export const KEY_GROUPS = [
       },
       {
         title: 'Special',
-        items: [{ label: 'Trans', zmk: '&trans', qmk: 'KC_TRNS' }]
+        items: [
+          { label: 'Trans', zmk: '&trans', qmk: 'KC_TRNS' },
+          { label: 'None', zmk: '&none', qmk: 'KC_NO' }
+        ]
       },
       {
         title: 'Navigation',
