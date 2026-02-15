@@ -686,6 +686,8 @@ const formatQmkKeymap = (keys, layers, magicHoldLetters) => {
   return `#include QMK_KEYBOARD_H\n\nconst uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {\n${layerBlocks}\n};\n`
 }
 
+const DEFAULT_SAVE_NAME = 'keyboard-config.kb.json'
+
 const downloadFile = (filename, content, type = 'text/plain') => {
   const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
@@ -696,6 +698,30 @@ const downloadFile = (filename, content, type = 'text/plain') => {
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+const saveFileWithPicker = async (filename, content, type = 'text/plain') => {
+  if (typeof window === 'undefined' || !window.showSaveFilePicker) {
+    downloadFile(filename, content, type)
+    return
+  }
+
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: filename,
+      types: [
+        {
+          accept: { 'application/json': ['.json'] }
+        }
+      ]
+    })
+    const writable = await handle.createWritable()
+    await writable.write(new Blob([content], { type }))
+    await writable.close()
+  } catch (error) {
+    if (error?.name === 'AbortError') return
+    downloadFile(filename, content, type)
+  }
 }
 
 function App() {
@@ -901,6 +927,7 @@ function App() {
 
   const handleSave = () => {
     if (!parsed.matrix) return
+    const saveName = lastLoaded || DEFAULT_SAVE_NAME
     const payload = {
       version: 1,
       yaml: null,
@@ -917,7 +944,7 @@ function App() {
         holdLetters: magicHoldLetters
       }
     }
-    downloadFile('keyboard-config.kb.json', JSON.stringify(payload, null, 2), 'application/json')
+    saveFileWithPicker(saveName, JSON.stringify(payload, null, 2), 'application/json')
   }
 
   const handleLoadSave = async (event) => {
@@ -988,8 +1015,10 @@ function App() {
         </div>
       </header>
 
-      <main className="content">
-        <section className="panel canvas">
+      {parsed.matrix ? (
+        <>
+          <main className="content">
+          <section className="panel canvas">
           <div className="panel-header">
             <h2>Layout Preview</h2>
             <div className="panel-actions">
@@ -1071,9 +1100,9 @@ function App() {
               )
             })}
           </svg>
-        </section>
+          </section>
 
-        <section className="panel inspector">
+          <section className="panel inspector">
           <h2>Layer & Key Editor</h2>
           <div className="layers">
             <div className="layer-controls">
@@ -1210,10 +1239,10 @@ function App() {
             </div>
             <p className="magic-note">Only affects keys whose base layer binding is the matching letter.</p>
           </div>
-        </section>
-      </main>
+          </section>
+        </main>
 
-      <section className="panel export-panel">
+        <section className="panel export-panel">
         <div className="panel-header">
           <div>
             <h2>Export & Flashing</h2>
@@ -1314,7 +1343,9 @@ function App() {
             </div>
           </div>
         )}
-      </section>
+        </section>
+        </>
+      ) : null}
     </div>
   )
 }
