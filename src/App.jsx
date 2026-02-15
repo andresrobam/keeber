@@ -519,6 +519,18 @@ const createLayer = (index) => ({
   bindings: {}
 })
 
+const clampLayerIndex = (index, layers) => {
+  const maxIndex = Math.max(layers.length - 1, 0)
+  if (!Number.isFinite(index)) return 0
+  return Math.min(Math.max(0, index), maxIndex)
+}
+
+const findLayerIndexById = (layers, id, fallback = 0) => {
+  if (!id) return fallback
+  const index = layers.findIndex((layer) => layer.id === id)
+  return index === -1 ? fallback : index
+}
+
 const ensureLayers = (layers, keys) => {
   if (layers.length === 0) {
     return [createLayer(0)]
@@ -669,7 +681,7 @@ const buildMagicLayerBindings = (keys, baseLayer, target, magicHoldLetters) =>
     return target === 'zmk' ? '&trans' : 'KC_TRNS'
   })
 
-const formatZmkKeymap = (keys, layers, magicHoldLetters) => {
+const formatZmkKeymap = (keys, layers, magicHoldLetters, defaultLayer) => {
   const useMagic = hasMagicBinding(layers)
   const magicLayerIndex = layers.length
   const layerBlocks = layers.map((layer, index) => {
@@ -693,7 +705,8 @@ const formatZmkKeymap = (keys, layers, magicHoldLetters) => {
       `    layer_${magicLayerIndex} {\n      label = "${MAGIC_LAYER_NAME}";\n      bindings = < ${magicBindings} >;\n    };`
     )
   }
-  return `/ {\n  keymap {\n    compatible = "zmk,keymap";\n    default_layer = <0>;\n    layers {\n${layerBlocks.join('\n')}\n    };\n  };\n};\n`
+  const safeDefault = clampLayerIndex(defaultLayer, layers)
+  return `/ {\n  keymap {\n    compatible = "zmk,keymap";\n    default_layer = <${safeDefault}>;\n    layers {\n${layerBlocks.join('\n')}\n    };\n  };\n};\n`
 }
 
 const pinToGpio = (pin) => {
@@ -740,9 +753,10 @@ const formatQmkInfo = (keys, matrix) => {
   )
 }
 
-const formatQmkKeymap = (keys, layers, magicHoldLetters) => {
+const formatQmkKeymap = (keys, layers, magicHoldLetters, defaultLayer) => {
   const useMagic = hasMagicBinding(layers)
   const magicLayerIndex = layers.length
+  const safeDefault = clampLayerIndex(defaultLayer, layers)
   const layerBlocks = layers
     .map((layer, layerIndex) => {
       const keycodes = keys.map((key) => {
@@ -766,7 +780,7 @@ const formatQmkKeymap = (keys, layers, magicHoldLetters) => {
     )
     .join(',\n')
 
-  return `#include QMK_KEYBOARD_H\n\nconst uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {\n${layerBlocks}\n};\n`
+  return `#include QMK_KEYBOARD_H\n\nconst uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {\n${layerBlocks}\n};\n\nvoid keyboard_post_init_user(void) {\n  default_layer_set(1UL << ${safeDefault});\n}\n`
 }
 
 const DEFAULT_SAVE_NAME = 'keyboard-config.kb.json'
@@ -812,6 +826,8 @@ function App() {
   const [parsed, setParsed] = useState({ keys: [], matrix: null, warnings: [], bounds: null })
   const [layers, setLayers] = useState([createLayer(0)])
   const [activeLayer, setActiveLayer] = useState(0)
+  const [defaultLayerZmk, setDefaultLayerZmk] = useState(0)
+  const [defaultLayerQmk, setDefaultLayerQmk] = useState(0)
   const [selectedKeyId, setSelectedKeyId] = useState(null)
   const [showGhosts, setShowGhosts] = useState(false)
   const [lastLoaded, setLastLoaded] = useState('')
@@ -1061,7 +1077,11 @@ function App() {
   const removeLayer = () => {
     if (layers.length <= 1) return
     setLayers((prev) => {
+      const zmkId = prev[defaultLayerZmk]?.id
+      const qmkId = prev[defaultLayerQmk]?.id
       const next = prev.filter((_, index) => index !== activeLayer)
+      setDefaultLayerZmk(findLayerIndexById(next, zmkId, 0))
+      setDefaultLayerQmk(findLayerIndexById(next, qmkId, 0))
       return shiftLayerBindings(next, activeLayer)
     })
     setActiveLayer(0)
@@ -1089,8 +1109,12 @@ function App() {
     if (fromIndex === targetIndex) return
     setLayers((prev) => {
       if (fromIndex < 0 || fromIndex >= prev.length || targetIndex >= prev.length) return prev
+      const zmkId = prev[defaultLayerZmk]?.id
+      const qmkId = prev[defaultLayerQmk]?.id
       const { nextLayers, indexMap } = reorderLayers(prev, fromIndex, targetIndex)
       setActiveLayer((current) => indexMap[current] ?? current)
+      setDefaultLayerZmk(findLayerIndexById(nextLayers, zmkId, 0))
+      setDefaultLayerQmk(findLayerIndexById(nextLayers, qmkId, 0))
       return remapLayerBindings(nextLayers, indexMap)
     })
     setDragLayerIndex(targetIndex)
@@ -1130,6 +1154,10 @@ function App() {
       layers,
       activeLayer,
       selectedKeyId,
+      defaultLayers: {
+        zmk: defaultLayerZmk,
+        qmk: defaultLayerQmk
+      },
       magic: {
         holdLetters: magicHoldLetters
       }
@@ -1159,6 +1187,8 @@ function App() {
       }
       if (Array.isArray(data.layers) && data.layers.length > 0) {
         setLayers(data.layers)
+        setDefaultLayerZmk(clampLayerIndex(data.defaultLayers?.zmk ?? 0, data.layers))
+        setDefaultLayerQmk(clampLayerIndex(data.defaultLayers?.qmk ?? 0, data.layers))
       }
       if (typeof data.activeLayer === 'number') {
         setActiveLayer(data.activeLayer)
@@ -1196,10 +1226,14 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeydown)
   }, [bindingLookup, captureIndex, captureMode, captureKeys, activeLayer])
 
-  const zmkKeymap = parsed.matrix ? formatZmkKeymap(visibleKeys, layers, magicHoldSet) : ''
+  const zmkKeymap = parsed.matrix
+    ? formatZmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerZmk)
+    : ''
   const zmkOverlay = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
   const qmkInfo = parsed.matrix ? formatQmkInfo(visibleKeys, parsed.matrix) : ''
-  const qmkKeymap = parsed.matrix ? formatQmkKeymap(visibleKeys, layers, magicHoldSet) : ''
+  const qmkKeymap = parsed.matrix
+    ? formatQmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerQmk)
+    : ''
 
   return (
     <div className="app">
@@ -1513,6 +1547,21 @@ function App() {
         </div>
         {exportTarget === 'zmk' ? (
           <div className="export-body">
+            <div className="field export-field">
+              <label>Default layer (ZMK)</label>
+              <select
+                value={defaultLayerZmk}
+                onChange={(event) =>
+                  setDefaultLayerZmk(clampLayerIndex(Number(event.target.value), layers))
+                }
+              >
+                {layers.map((layerItem, index) => (
+                  <option key={layerItem.id} value={index}>
+                    {layerItem.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="export-actions">
               <button
                 className="primary"
@@ -1553,6 +1602,21 @@ function App() {
           </div>
         ) : (
           <div className="export-body">
+            <div className="field export-field">
+              <label>Default layer (QMK)</label>
+              <select
+                value={defaultLayerQmk}
+                onChange={(event) =>
+                  setDefaultLayerQmk(clampLayerIndex(Number(event.target.value), layers))
+                }
+              >
+                {layers.map((layerItem, index) => (
+                  <option key={layerItem.id} value={index}>
+                    {layerItem.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="export-actions">
               <button
                 className="primary"

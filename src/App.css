@@ -414,6 +414,21 @@ body {
   color: var(--ink-soft);
 }
 
+.field select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink);
+}
+
+.export-field {
+  margin-bottom: 0;
+}
+
 .palette {
   display: flex;
   flex-direction: column;
