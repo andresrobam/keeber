@@ -855,6 +855,12 @@ const formatQmkKeymap = (keys, layers, magicHoldLetters, defaultLayer, unicodeOs
 
 const DEFAULT_SAVE_NAME = 'keyboard-config.kb.json'
 
+const PALETTE_TABS = [
+  { id: 'core', label: 'Core keys' },
+  { id: 'function', label: 'Function & media/system keys' },
+  { id: 'other', label: 'Other' }
+]
+
 const downloadFile = (filename, content, type = 'text/plain') => {
   const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
@@ -914,6 +920,7 @@ function App() {
   const [captureColDirection, setCaptureColDirection] = useState('asc')
   const [unicodeHexInput, setUnicodeHexInput] = useState('')
   const [unicodeHexError, setUnicodeHexError] = useState('')
+  const [paletteTab, setPaletteTab] = useState('core')
   const activeLayerInputRef = useRef(null)
 
   const magicHoldSet = useMemo(() => new Set(magicHoldLetters), [magicHoldLetters])
@@ -1012,6 +1019,24 @@ function App() {
     return groups
   }, [layers, layerMode])
 
+  const paletteTabs = useMemo(() => {
+    const grouped = {
+      core: [],
+      function: [],
+      other: []
+    }
+    paletteGroups.forEach((group) => {
+      if (group.title === 'Core') {
+        grouped.core.push(group)
+      } else if (group.title === 'Function Row' || group.title === 'Media/System') {
+        grouped.function.push(group)
+      } else {
+        grouped.other.push(group)
+      }
+    })
+    return grouped
+  }, [paletteGroups])
+
   const viewBox = useMemo(() => {
     if (!parsed.bounds) return '0 0 400 400'
     const padding = 24
@@ -1051,6 +1076,14 @@ function App() {
     setUnicodeHexInput(selectedUnicodeHex || '')
     setUnicodeHexError('')
   }, [selectedUnicodeHex, selectedKeyId, activeLayer])
+
+  useEffect(() => {
+    if (paletteTab === 'other' || paletteTabs[paletteTab]?.length) return
+    const nextTab = PALETTE_TABS.find((tab) => paletteTabs[tab.id]?.length)?.id || 'core'
+    if (nextTab !== paletteTab) {
+      setPaletteTab(nextTab)
+    }
+  }, [paletteTab, paletteTabs])
 
   useLayoutEffect(() => {
     const input = activeLayerInputRef.current
@@ -1588,7 +1621,21 @@ function App() {
                   </div>
                 </div>
                 <div className="palette">
-                  {paletteGroups.map((group) => (
+                  <div className="palette-tabs" role="tablist" aria-label="Key palette tabs">
+                    {PALETTE_TABS.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={paletteTab === tab.id}
+                        className={`palette-tab ${paletteTab === tab.id ? 'active' : ''}`}
+                        onClick={() => setPaletteTab(tab.id)}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  {(paletteTabs[paletteTab] || []).map((group) => (
                     <div className="palette-group" key={group.title}>
                       <h4 className="palette-title">{group.title}</h4>
                       {group.title === 'Layers' ? (
@@ -1626,83 +1673,86 @@ function App() {
                       ))}
                     </div>
                   ))}
-                </div>
-                <div className="unicode-settings">
-                  <div>
-                    <h4>Unicode key</h4>
-                    <p>Send a Unicode code point from this key.</p>
-                  </div>
-                  <div className="unicode-row">
-                    <div className="field unicode-input">
-                      <label>Code point</label>
-                      <div className="unicode-input-wrap">
-                        <span className="unicode-prefix">U+</span>
-                        <input
-                          value={unicodeHexInput}
-                          onChange={(event) => {
-                            const nextValue = event.target.value
-                            setUnicodeHexInput(nextValue)
-                            const normalized = normalizeUnicodeHexInput(nextValue)
-                            setUnicodeHexError(normalized.error)
-                          }}
-                          placeholder="1F600"
-                        />
+                  {paletteTab === 'other' ? (
+                    <>
+                      <div className="unicode-settings">
+                        <div>
+                          <h4>Unicode key</h4>
+                          <p>Send a Unicode code point from this key.</p>
+                        </div>
+                        <div className="unicode-row">
+                          <div className="field unicode-input">
+                            <label>Code point</label>
+                            <div className="unicode-input-wrap">
+                              <span className="unicode-prefix">U+</span>
+                              <input
+                                value={unicodeHexInput}
+                                onChange={(event) => {
+                                  const nextValue = event.target.value
+                                  setUnicodeHexInput(nextValue)
+                                  const normalized = normalizeUnicodeHexInput(nextValue)
+                                  setUnicodeHexError(normalized.error)
+                                }}
+                                placeholder="1F600"
+                              />
+                            </div>
+                          </div>
+                          <div className="unicode-actions">
+                            <button type="button" className="primary" onClick={applyUnicodeBinding}>
+                              Apply Unicode
+                            </button>
+                            <button type="button" className="ghost" onClick={clearUnicodeBinding}>
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                        {unicodeHexError ? (
+                          <p className="unicode-error">{unicodeHexError}</p>
+                        ) : null}
                       </div>
-                    </div>
-                    <div className="unicode-actions">
-                      <button type="button" className="primary" onClick={applyUnicodeBinding}>
-                        Apply Unicode
-                      </button>
-                      <button type="button" className="ghost" onClick={clearUnicodeBinding}>
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                  {unicodeHexError ? (
-                    <p className="unicode-error">{unicodeHexError}</p>
+                      <div className="magic-settings">
+                        <div className="magic-header">
+                          <div>
+                            <h3>Magic modifier</h3>
+                            <p>Choose which alpha keys get the hold modifier on the Magic layer.</p>
+                          </div>
+                          <div className="magic-actions">
+                            <button type="button" className="ghost" onClick={() => setMagicHoldLetters(MAGIC_LETTER_OPTIONS)}>
+                              All
+                            </button>
+                            <button type="button" className="ghost" onClick={() => setMagicHoldLetters([])}>
+                              None
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost"
+                              onClick={() => setMagicHoldLetters(DEFAULT_MAGIC_HOLD_LETTERS)}
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        </div>
+                        <div className="magic-grid">
+                          {MAGIC_LETTER_OPTIONS.map((letter) => (
+                            <button
+                              key={letter}
+                              type="button"
+                              className={`magic-letter ${magicHoldSet.has(letter) ? 'active' : ''}`}
+                              onClick={() => toggleMagicLetter(letter)}
+                            >
+                              {letter}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="magic-note">Only affects keys whose base layer binding is the matching letter.</p>
+                      </div>
+                    </>
                   ) : null}
                 </div>
               </>
               ) : (
                 <p>Select a key on the layout to edit bindings.</p>
               )}
-          </div>
-
-          <div className="magic-settings">
-            <div className="magic-header">
-              <div>
-                <h3>Magic modifier</h3>
-                <p>Choose which alpha keys get the hold modifier on the Magic layer.</p>
-              </div>
-              <div className="magic-actions">
-                <button type="button" className="ghost" onClick={() => setMagicHoldLetters(MAGIC_LETTER_OPTIONS)}>
-                  All
-                </button>
-                <button type="button" className="ghost" onClick={() => setMagicHoldLetters([])}>
-                  None
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setMagicHoldLetters(DEFAULT_MAGIC_HOLD_LETTERS)}
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
-            <div className="magic-grid">
-              {MAGIC_LETTER_OPTIONS.map((letter) => (
-                <button
-                  key={letter}
-                  type="button"
-                  className={`magic-letter ${magicHoldSet.has(letter) ? 'active' : ''}`}
-                  onClick={() => toggleMagicLetter(letter)}
-                >
-                  {letter}
-                </button>
-              ))}
-            </div>
-            <p className="magic-note">Only affects keys whose base layer binding is the matching letter.</p>
           </div>
           </section>
         </main>

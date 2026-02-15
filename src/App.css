@@ -545,6 +545,26 @@ body {
   gap: 16px;
 }
 
+.palette-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.palette-tab {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 30, 31, 0.12);
+  background: rgba(15, 30, 31, 0.06);
+  font-size: 12px;
+}
+
+.palette-tab.active {
+  background: var(--sea);
+  color: white;
+  border-color: transparent;
+}
+
 .palette-group {
   display: flex;
   flex-direction: column;
