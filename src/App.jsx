@@ -77,6 +77,36 @@ const LAYER_MODES = [
   { id: 'once', label: 'Once', description: 'Next key only' }
 ]
 
+const MODIFIER_DEFS = [
+  { id: 'lctrl', label: 'L Ctrl', zmk: 'LC', qmk: 'LCTL' },
+  { id: 'rctrl', label: 'R Ctrl', zmk: 'RC', qmk: 'RCTL' },
+  { id: 'lshift', label: 'L Shift', zmk: 'LS', qmk: 'LSFT' },
+  { id: 'rshift', label: 'R Shift', zmk: 'RS', qmk: 'RSFT' },
+  { id: 'lalt', label: 'L Alt', zmk: 'LA', qmk: 'LALT' },
+  { id: 'ralt', label: 'R Alt', zmk: 'RA', qmk: 'RALT' },
+  { id: 'lgui', label: 'L Gui', zmk: 'LG', qmk: 'LGUI' },
+  { id: 'rgui', label: 'R Gui', zmk: 'RG', qmk: 'RGUI' }
+]
+
+const MODIFIER_DEFS_BY_ID = Object.fromEntries(MODIFIER_DEFS.map((modifier) => [modifier.id, modifier]))
+const MODIFIER_LABELS = Object.fromEntries(MODIFIER_DEFS.map((modifier) => [modifier.id, modifier.label]))
+const MODIFIER_WRAPPER_MAP = MODIFIER_DEFS.reduce((acc, modifier) => {
+  acc[modifier.zmk] = modifier.id
+  acc[modifier.qmk] = modifier.id
+  return acc
+}, {})
+const MODIFIER_ORDER = MODIFIER_DEFS.map((modifier) => modifier.id)
+const MODIFIER_KEY_MAP = {
+  ShiftLeft: 'lshift',
+  ShiftRight: 'rshift',
+  ControlLeft: 'lctrl',
+  ControlRight: 'rctrl',
+  AltLeft: 'lalt',
+  AltRight: 'ralt',
+  MetaLeft: 'lgui',
+  MetaRight: 'rgui'
+}
+
 const UNICODE_MAX = 0x10ffff
 const UNICODE_OS_OPTIONS = [
   { id: 'macos', label: 'macOS', zmk: 'UC_MODE_MACOS', qmk: 'UNICODE_MODE_MACOS' },
@@ -161,6 +191,82 @@ const normalizeMagicLetters = (letters) => {
   return MAGIC_LETTER_OPTIONS.filter((letter) => unique.has(letter))
 }
 
+const getOrderedModifiers = (mods) => {
+  if (!Array.isArray(mods)) return []
+  const unique = new Set(mods)
+  return MODIFIER_ORDER.filter((id) => unique.has(id))
+}
+
+const formatModifierLabels = (mods) =>
+  getOrderedModifiers(mods).map((id) => MODIFIER_LABELS[id]).filter(Boolean)
+
+const parseModifierBinding = (binding) => {
+  if (!binding) return { mods: [], base: '' }
+  let trimmed = binding.trim()
+  if (!trimmed) return { mods: [], base: '' }
+
+  if (trimmed.startsWith('&kp')) {
+    const parts = trimmed.split(/\s+/)
+    trimmed = parts.slice(1).join(' ')
+  }
+
+  const mods = []
+  let matched = true
+  while (matched) {
+    matched = false
+    const wrapperMatch = /^([A-Z]+)\((.+)\)$/.exec(trimmed)
+    if (wrapperMatch) {
+      const wrapper = wrapperMatch[1]
+      const inner = wrapperMatch[2]
+      const modId = MODIFIER_WRAPPER_MAP[wrapper]
+      if (modId) {
+        mods.push(modId)
+        trimmed = inner
+        matched = true
+      }
+    }
+  }
+
+  return { mods, base: trimmed }
+}
+
+const applyModifiersToBinding = (binding, target, modifierIds) => {
+  if (!binding || !Array.isArray(modifierIds) || modifierIds.length === 0) return binding
+  const ordered = getOrderedModifiers(modifierIds)
+  if (!ordered.length) return binding
+  const trimmed = binding.trim()
+
+  if (target === 'zmk') {
+    const kpMatch = /^&kp\s+(.+)$/.exec(trimmed)
+    if (!kpMatch) return binding
+    let wrapped = kpMatch[1]
+    if (!wrapped) return binding
+    ordered.forEach((id) => {
+      const modifier = MODIFIER_DEFS_BY_ID[id]
+      if (modifier?.zmk) {
+        wrapped = `${modifier.zmk}(${wrapped})`
+      }
+    })
+    return `&kp ${wrapped}`
+  }
+
+  if (!/^KC_[A-Z0-9_]+$/.test(trimmed)) return binding
+  if (trimmed === 'KC_TRNS' || trimmed === 'KC_NO') return binding
+  let wrapped = trimmed
+  ordered.forEach((id) => {
+    const modifier = MODIFIER_DEFS_BY_ID[id]
+    if (modifier?.qmk) {
+      wrapped = `${modifier.qmk}(${wrapped})`
+    }
+  })
+  return wrapped
+}
+
+const applyModifiersToItem = (item, modifierIds) => ({
+  zmk: applyModifiersToBinding(item.zmk, 'zmk', modifierIds),
+  qmk: applyModifiersToBinding(item.qmk, 'qmk', modifierIds)
+})
+
 const formatKeyLabel = (binding) => {
   const token = parseBindingToken(binding)
   if (!token) return ''
@@ -184,19 +290,42 @@ const findCanonicalLabel = (binding, labelLookup) => {
   return labelLookup.get(normalizeToken(token)) || ''
 }
 
-const resolveKeyLabel = (zmk, qmk, layers, labelLookup) => {
-  const unicodeHex = parseUnicodeHexFromBinding(zmk) || parseUnicodeHexFromBinding(qmk)
-  if (unicodeHex) return `U+${unicodeHex}`
-  const canonical =
-    findCanonicalLabel(zmk, labelLookup) ||
-    findCanonicalLabel(qmk, labelLookup)
-  const label = canonical || formatKeyLabel(zmk) || formatKeyLabel(qmk)
+const resolveBindingLabel = (binding, layers, labelLookup) => {
+  if (!binding) return ''
+  const canonical = findCanonicalLabel(binding, labelLookup)
+  const label = canonical || formatKeyLabel(binding)
   const layerMatch = /^L(\d+)$/.exec(label)
   if (layerMatch) {
     const index = Number(layerMatch[1])
     return layers?.[index]?.name || label
   }
   return label
+}
+
+const resolveKeyLabel = (zmk, qmk, layers, labelLookup) => {
+  const unicodeHex = parseUnicodeHexFromBinding(zmk) || parseUnicodeHexFromBinding(qmk)
+  if (unicodeHex) return `U+${unicodeHex}`
+
+  const zmkMods = parseModifierBinding(zmk)
+  const qmkMods = parseModifierBinding(qmk)
+  const modInfo = zmkMods.mods.length ? zmkMods : qmkMods.mods.length ? qmkMods : null
+  if (modInfo) {
+    const baseLabel =
+      resolveBindingLabel(modInfo.base, layers, labelLookup) ||
+      resolveBindingLabel(zmk, layers, labelLookup) ||
+      resolveBindingLabel(qmk, layers, labelLookup)
+    if (baseLabel) {
+      const modLabels = formatModifierLabels(modInfo.mods)
+      if (modLabels.length) {
+        return `${modLabels.join('+')}+${baseLabel}`
+      }
+    }
+  }
+
+  return (
+    resolveBindingLabel(zmk, layers, labelLookup) ||
+    resolveBindingLabel(qmk, layers, labelLookup)
+  )
 }
 
 const computeKeyFontSize = (label, unit) => {
@@ -299,9 +428,6 @@ const CODE_TOKEN_MAP = {
 
 const getCaptureToken = (event) => {
   if (!event) return ''
-  if ((event.ctrlKey || event.altKey || event.metaKey) && !['Control', 'Alt', 'Meta'].includes(event.key)) {
-    return ''
-  }
   const code = event.code || ''
   if (CODE_TOKEN_MAP[code]) return CODE_TOKEN_MAP[code]
   if (code.startsWith('Key')) return code.slice(3).toUpperCase()
@@ -707,7 +833,9 @@ const hasUnicodeBinding = (layers, target) =>
   )
 
 const getAlphaToken = (binding) => {
-  const token = parseBindingToken(binding)
+  const modifierInfo = parseModifierBinding(binding)
+  const baseBinding = modifierInfo.base || binding
+  const token = parseBindingToken(baseBinding)
   if (!token) return ''
   const upper = token.toUpperCase()
   if (upper.length === 1 && upper >= 'A' && upper <= 'Z') return upper
@@ -920,12 +1048,15 @@ function App() {
   const [captureIndex, setCaptureIndex] = useState(0)
   const [captureRowDirection, setCaptureRowDirection] = useState('asc')
   const [captureColDirection, setCaptureColDirection] = useState('asc')
+  const [modifierSelection, setModifierSelection] = useState([])
   const [unicodeHexInput, setUnicodeHexInput] = useState('')
   const [unicodeHexError, setUnicodeHexError] = useState('')
   const [paletteTab, setPaletteTab] = useState('core')
   const activeLayerInputRef = useRef(null)
+  const captureModifiersRef = useRef(new Set())
 
   const magicHoldSet = useMemo(() => new Set(magicHoldLetters), [magicHoldLetters])
+  const modifierSelectionSet = useMemo(() => new Set(modifierSelection), [modifierSelection])
 
   const visibleKeys = useMemo(() => parsed.keys.filter((key) => !key.skip), [parsed.keys])
   const captureKeys = useMemo(() => {
@@ -1176,8 +1307,19 @@ function App() {
     })
   }
 
+  const toggleModifierSelection = (modifierId) => {
+    setModifierSelection((prev) =>
+      prev.includes(modifierId) ? prev.filter((id) => id !== modifierId) : [...prev, modifierId]
+    )
+  }
+
+  const clearModifierSelection = () => {
+    setModifierSelection([])
+  }
+
   const applyPalette = (item) => {
     if (!selectedKey) return
+    const modified = applyModifiersToItem(item, modifierSelection)
     setLayers((prev) =>
       prev.map((layerItem, index) => {
         if (index !== activeLayer) return layerItem
@@ -1185,7 +1327,7 @@ function App() {
           ...layerItem,
           bindings: {
             ...layerItem.bindings,
-            [selectedKey.id]: { zmk: item.zmk, qmk: item.qmk }
+            [selectedKey.id]: { zmk: modified.zmk, qmk: modified.qmk }
           }
         }
       })
@@ -1382,6 +1524,11 @@ function App() {
     const handleKeydown = (event) => {
       if (event.repeat) return
       if (isEditableElement(event.target)) return
+      const modifierId = MODIFIER_KEY_MAP[event.code]
+      if (modifierId) {
+        captureModifiersRef.current.add(modifierId)
+        return
+      }
       const token = getCaptureToken(event)
       if (!token) return
       const lookupKey = normalizeToken(token)
@@ -1390,13 +1537,25 @@ function App() {
       const currentKey = captureKeys[captureIndex]
       if (!currentKey) return
       event.preventDefault()
-      updateKeyBinding(currentKey.id, bindingItem)
+      const modifierIds = Array.from(captureModifiersRef.current)
+      updateKeyBinding(currentKey.id, applyModifiersToItem(bindingItem, modifierIds))
       const nextIndex = captureIndex + 1 >= captureKeys.length ? 0 : captureIndex + 1
       setCaptureIndex(nextIndex)
       setSelectedKeyId(captureKeys[nextIndex]?.id || currentKey.id)
     }
+    const handleKeyup = (event) => {
+      const modifierId = MODIFIER_KEY_MAP[event.code]
+      if (modifierId) {
+        captureModifiersRef.current.delete(modifierId)
+      }
+    }
     window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
+    window.addEventListener('keyup', handleKeyup)
+    return () => {
+      window.removeEventListener('keydown', handleKeydown)
+      window.removeEventListener('keyup', handleKeyup)
+      captureModifiersRef.current.clear()
+    }
   }, [bindingLookup, captureIndex, captureMode, captureKeys, activeLayer])
 
   const zmkKeymap = parsed.matrix
@@ -1631,6 +1790,32 @@ function App() {
                   </div>
                 </div>
                 <div className="palette">
+                  <div className="modifier-row">
+                    <div className="modifier-header">
+                      <p className="palette-subtitle">Modifiers</p>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={clearModifierSelection}
+                        disabled={modifierSelection.length === 0}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="modifier-grid">
+                      {MODIFIER_DEFS.map((modifier) => (
+                        <button
+                          key={modifier.id}
+                          type="button"
+                          className={`modifier-chip ${modifierSelectionSet.has(modifier.id) ? 'active' : ''}`}
+                          onClick={() => toggleModifierSelection(modifier.id)}
+                        >
+                          {modifier.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="modifier-note">Applies to palette selections.</p>
+                  </div>
                   <div className="palette-tabs" role="tablist" aria-label="Key palette tabs">
                     {PALETTE_TABS.map((tab) => (
                       <button
