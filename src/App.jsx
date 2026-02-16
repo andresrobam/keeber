@@ -535,6 +535,12 @@ const parseErgogen = (yamlText) => {
     }
   })
 
+  const trrsParams = doc?.pcbs?.main?.footprints?.trrs?.params || {}
+  const trrsSignalPin = Object.entries(trrsParams)
+    .filter(([key]) => /^[A-D]$/.test(key))
+    .map(([, net]) => (typeof net === 'string' ? net : null))
+    .find((net) => net && /^P\d+$/.test(net))
+
   const zoneEntries = Object.entries(zones)
   zoneEntries.forEach(([zoneName, zone], zoneIndex) => {
     const anchor = zone?.anchor || {}
@@ -645,6 +651,10 @@ const parseErgogen = (yamlText) => {
     })
   }
 
+  if (mirror && !trrsSignalPin) {
+    warnings.push('TRRS pin not found for split QMK configuration')
+  }
+
   const bounds = keys.reduce(
     (acc, key) => {
       const size = key.unit
@@ -677,7 +687,8 @@ const parseErgogen = (yamlText) => {
     rows: rowList,
     cols: colList,
     pinMap,
-    mirrored: Boolean(mirror)
+    mirrored: Boolean(mirror),
+    trrsPin: trrsSignalPin || ''
   }
 
   return { keys, matrix, warnings, bounds }
@@ -913,6 +924,17 @@ const formatZmkOverlay = (matrix) => {
   const colPins = matrix.cols.map((col) => pinToGpio(matrix.pinMap[col.net])).filter(Boolean)
   return `/ {\n  kscan0: kscan_0 {\n    compatible = "zmk,kscan-gpio-matrix";\n    row-gpios = < ${rowPins.join(' ')} >;\n    col-gpios = < ${colPins.join(' ')} >;\n    diode-direction = "col2row";\n  };\n};\n`
 }
+
+const formatQmkConfigH = (matrix) => {
+  const lines = ['#pragma once', '', '#define MASTER_LEFT']
+  if (matrix?.trrsPin) {
+    lines.push(`#define SOFT_SERIAL_PIN ${matrix.trrsPin}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+const formatQmkRulesMk = () =>
+  `SPLIT_KEYBOARD = yes\nSPLIT_TRANSPORT = serial\nSERIAL_DRIVER = software\n`
 
 const formatQmkInfo = (keys, matrix) => {
   const unit = keys[0]?.unit || DEFAULT_U
@@ -1561,11 +1583,14 @@ function App() {
   const zmkKeymap = parsed.matrix
     ? formatZmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerZmk, unicodeOsZmk)
     : ''
-  const zmkOverlay = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
+  const zmkOverlayLeft = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
+  const zmkOverlayRight = parsed.matrix ? formatZmkOverlay(parsed.matrix) : ''
   const qmkInfo = parsed.matrix ? formatQmkInfo(visibleKeys, parsed.matrix) : ''
   const qmkKeymap = parsed.matrix
     ? formatQmkKeymap(visibleKeys, layers, magicHoldSet, defaultLayerQmk, unicodeOsQmk)
     : ''
+  const qmkConfigH = parsed.matrix ? formatQmkConfigH(parsed.matrix) : ''
+  const qmkRulesMk = parsed.matrix ? formatQmkRulesMk() : ''
 
   return (
     <div className="app">
@@ -2011,10 +2036,17 @@ function App() {
               </button>
               <button
                 className="ghost"
-                onClick={() => downloadFile('config.overlay', zmkOverlay)}
+                onClick={() => downloadFile('config.left.overlay', zmkOverlayLeft)}
                 disabled={!parsed.matrix}
               >
-                Download config.overlay
+                Download config.left.overlay
+              </button>
+              <button
+                className="ghost"
+                onClick={() => downloadFile('config.right.overlay', zmkOverlayRight)}
+                disabled={!parsed.matrix}
+              >
+                Download config.right.overlay
               </button>
             </div>
             <div className="flash-instructions">
@@ -2022,18 +2054,28 @@ function App() {
               <div className="flash-steps">
                 <div className="flash-step">
                   <p className="step-title">1. Add the files to your ZMK config repo</p>
-                  <p className="step-detail">Place `keymap.keymap` and `config.overlay` in your config folder.</p>
+                  <p className="step-detail">
+                    Place `keymap.keymap`, `config.left.overlay`, and `config.right.overlay` in your config folder.
+                    The left side is treated as the central (master) half for Bluetooth splits.
+                  </p>
                 </div>
                 <div className="flash-step">
-                  <p className="step-title">2. Build the firmware</p>
+                  <p className="step-title">2. Build the left (central) firmware</p>
                   <pre>
-                    <code>west build -d build/left -b your_board -S zmk,keyboard</code>
+                    <code>west build -d build/left -b your_board -S zmk,keyboard -- -DOVERLAY_CONFIG=config.left.overlay</code>
                   </pre>
                 </div>
                 <div className="flash-step">
-                  <p className="step-title">3. Flash to the board</p>
+                  <p className="step-title">3. Build the right (peripheral) firmware</p>
                   <pre>
-                    <code>west flash</code>
+                    <code>west build -d build/right -b your_board -S zmk,keyboard -- -DOVERLAY_CONFIG=config.right.overlay</code>
+                  </pre>
+                </div>
+                <div className="flash-step">
+                  <p className="step-title">4. Flash left, then right</p>
+                  <pre>
+                    <code>west flash -d build/left
+west flash -d build/right</code>
                   </pre>
                 </div>
               </div>
@@ -2081,6 +2123,20 @@ function App() {
               >
                 Download info.json
               </button>
+              <button
+                className="ghost"
+                onClick={() => downloadFile('config.h', qmkConfigH)}
+                disabled={!parsed.matrix}
+              >
+                Download config.h
+              </button>
+              <button
+                className="ghost"
+                onClick={() => downloadFile('rules.mk', qmkRulesMk)}
+                disabled={!parsed.matrix}
+              >
+                Download rules.mk
+              </button>
             </div>
             <div className="flash-instructions">
               <h3>Flashing Instructions</h3>
@@ -2089,6 +2145,7 @@ function App() {
                   <p className="step-title">1. Copy the generated files</p>
                   <p className="step-detail">
                     Move `keymap.c` into `keyboards/your_kb/keymaps/your_keymap` and merge `info.json`.
+                    Add `config.h` and `rules.mk` to your keyboard folder (or merge into existing files).
                   </p>
                 </div>
                 <div className="flash-step">
@@ -2098,9 +2155,10 @@ function App() {
                   </pre>
                 </div>
                 <div className="flash-step">
-                  <p className="step-title">3. Flash to the board</p>
+                  <p className="step-title">3. Flash left (master), then right</p>
                   <pre>
-                    <code>qmk flash -kb your_kb -km your_keymap</code>
+                    <code>qmk flash -kb your_kb -km your_keymap
+qmk flash -kb your_kb -km your_keymap</code>
                   </pre>
                 </div>
               </div>
